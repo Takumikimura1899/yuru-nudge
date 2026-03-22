@@ -14,13 +14,15 @@ AIキャラクター（羊のナッジー）が、ユーザーのとりとめな
 
 | 領域 | 技術 |
 |---|---|
-| Framework | Next.js (App Router) |
+| Framework | TanStack Start (Viteベース、フルスタックReact) |
+| Toolchain | Vite+ (Vite, Vitest, Oxlint, Oxfmt を統合管理) |
 | Styling | Tailwind CSS (Rounded, Pastel tone) |
 | Animation | Framer Motion |
-| PWA | next-pwa（※App Router互換の問題があれば`@ducanh2912/next-pwa`等のフォークを検討） |
+| PWA | PWA化のタイミングで別途検討（初期はPWA化しない） |
 | Database | Supabase (PostgreSQL) |
-| AI | OpenAI API or Gemini API (Vercel AI SDK) |
-| Deploy | Vercel |
+| DB Client | Kysely（タイプセーフなSQLクエリビルダー） |
+| AI | Gemini API (Vercel AI SDK経由) |
+| Deploy | Cloudflare (Workers / Pages) |
 
 ---
 
@@ -458,40 +460,58 @@ pending seedが複数ある場合、**LLMが最適な1つを選択**する。
 
 | 項目 | 決定事項 |
 |---|---|
-| デプロイ先 | **Vercel** |
-| 理由 | Next.js App Router + Vercel AI SDKの親和性。1人利用なら無料枠で十分 |
+| デプロイ先 | **Cloudflare** (Workers / Pages) |
+| 理由 | TanStack Start公式ホスティングパートナー。Vite+との親和性が高い。1人利用なら無料枠で十分 |
+| デプロイ方式 | Nitroプラグイン + `wrangler deploy` |
 
 ### 12.2 データベース・アクセスパターン
 
 | 項目 | 決定事項 |
 |---|---|
 | DB | **Supabase (PostgreSQL)** |
-| アクセス方式 | **API Route経由**（クライアントからSupabase直接アクセスしない） |
-| RLS | **不要**（API RouteがDB唯一の窓口。認証はAPI層で制御） |
+| アクセス方式 | **Server Function / Server Route経由**（クライアントからSupabase直接アクセスしない） |
+| RLS | **不要**（Server FunctionがDB唯一の窓口。認証はミドルウェアで制御） |
+| マイグレーション管理 | **Supabase CLI**（`supabase migration`コマンドでスキーマ変更を管理） |
 
 ```
-クライアント → Next.js API Route → Supabase (server-side client)
-                    ↑
-              認証レイヤー（差し替え可能）
+クライアント → TanStack Start Server Function → Supabase (server-side client)
+                         ↑
+                   createMiddleware（差し替え可能）
 ```
 
-**設計方針**: 認証と密結合しない作り。MVPでは認証なし（固定ユーザーID）。将来の認証追加時はAPI Route層にミドルウェアを挟むだけで対応可能。
+**設計方針**: 認証と密結合しない作り。MVPでは認証なし（固定ユーザーID）。将来の認証追加時は`createMiddleware`を挟むだけで対応可能。
 
-### 12.3 認証・API保護
+### 12.3 環境変数管理
+
+| 項目 | 決定事項 |
+|---|---|
+| 管理方式 | `.env.local`（gitignored）+ `.env.example`（コミット対象、値は空のテンプレート） |
+| バリデーション | `@t3-oss/env-core` で起動時に型安全な検証 |
+
+**環境変数一覧（MVP）:**
+
+| 変数名 | 用途 |
+|---|---|
+| `SUPABASE_URL` | Supabase プロジェクトURL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase サービスロールキー（サーバーサイド専用） |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Gemini API キー（Vercel AI SDK用） |
+| `APP_USER_ID` | MVP固定ユーザーID |
+| `API_SECRET_KEY` | Server Function保護用Bearerトークン |
+
+### 12.4 認証・API保護
 
 | 項目 | 決定事項 |
 |---|---|
 | MVP | **認証なし**（環境変数で固定ユーザーID） |
-| API保護 | **Bearerトークンチェック**（環境変数にシークレットキーを設定、API Routeでヘッダー検証） |
-| 将来 | Supabase Auth等を追加。API Routeのミドルウェアとして差し込む（RLS設定も合わせて実施） |
+| API保護 | **Bearerトークンチェック**（環境変数にシークレットキーを設定、Server Function/Middlewareでヘッダー検証） |
+| 将来 | Supabase Auth等を追加。`createMiddleware`として差し込む（RLS設定も合わせて実施） |
 
-### 12.4 PWA
+### 12.5 PWA
 
 | 項目 | 決定事項 |
 |---|---|
-| オフライン挙動 | **オンライン必須**。オフラインでは使えない |
-| キャッシュ | 静的アセットのみ（next-pwaデフォルト） |
-| Push通知 | **なし**（MVPでは不要） |
+| MVP | **PWA化しない**（初期はWebアプリとして提供） |
+| 将来 | PWA化のタイミングで別途検討 |
 
 ---
 
@@ -556,10 +576,10 @@ pending seedが複数ある場合、**LLMが最適な1つを選択**する。
 | 1 | NGワード詳細 | 「頑張って！」等の応援系ワードの可否 |
 | 2 | 口調の微調整 | プロンプトエンジニアリング段階で詳細化 |
 | 3 | 完了数ビジュアル表現 | 背景変化 or ナッジー周辺の小物等 |
-| 4 | PWAバッジ | アイコンに未読ナッジ数表示 |
-| 5 | オフライン対応 | つぶやきのローカル保存・復帰時同期 |
+| 4 | PWA化 | PWAマニフェスト、Service Worker、オフライン対応 |
+| 5 | PWAバッジ | アイコンに未読ナッジ数表示 |
 | 6 | Push通知 | 通知の要否と活用方法 |
-| 7 | 認証追加 | Supabase Auth等のミドルウェア差し込み + RLS設定 |
+| 7 | 認証追加 | Supabase Auth等の`createMiddleware`差し込み + RLS設定 |
 | 8 | ユーザーパラメーター | moodログの要約→プロフィール永続化 |
 | 9 | マネタイズ | ユーザー規模拡大時の課金モデル |
 
@@ -569,7 +589,7 @@ pending seedが複数ある場合、**LLMが最適な1つを選択**する。
 
 | Phase | 内容 |
 |---|---|
-| 1 | **基盤構築**: Next.js + Tailwind セットアップ、PWAマニフェスト、Supabaseスキーマ作成、API Route基盤（Bearer認証）、固定ユーザーID |
+| 1 | **基盤構築**: Vite+ + TanStack Start + Tailwind セットアップ、Supabaseスキーマ作成（Supabase CLI）、Server Function基盤（Bearer認証ミドルウェア）、Cloudflareデプロイ設定、固定ユーザーID |
 | 2 | **つぶやきとAI解析**: チャットUI、入力フォーム（140文字制限）、Vercel AI SDKでの分類・応答、mutterings/seeds保存、moodログ30件管理 |
 | 3 | **ナッジ機能**: seed選択ロジック（LLM）、ナッジ表示（起動時/12時間間隔/再表示）、未来予言生成・保存、完了/難しい/いらないの状態遷移、緩和版生成、タイムアウト処理、棚卸し機能 |
 | 4 | **振り返りと演出**: 月次振り返り、累計セリフ織り込み、親子タスクの再提案フロー、SVG羊コンポーネント（3状態）、Framer Motionアニメーション |
