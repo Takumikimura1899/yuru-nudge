@@ -8,6 +8,9 @@ import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
 const config = defineConfig({
+  fmt: {
+    ignorePatterns: ["src/routeTree.gen.ts"],
+  },
   resolve: {
     tsconfigPaths: true,
   },

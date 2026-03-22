@@ -10,6 +10,7 @@
     "build": "vp build",
     "preview": "vp preview",
     "test": "vp test run",
+    "check": "vp check --fix",
     "deploy": "bun run build && wrangler deploy",
     "prepare": "vp config"
   },
