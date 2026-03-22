@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 技術スタック
 
+- **Runtime/Package Manager**: Bun
 - **Framework**: TanStack Start（Viteベース、フルスタックReact）
 - **Toolchain**: Vite+（Vite, Vitest, Oxlint, Oxfmt を統合管理）
 - **Styling**: Tailwind CSS (Rounded, Pastel tone)
