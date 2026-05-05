@@ -4,6 +4,7 @@
 最適なタイミングでタスクを 1 つだけ提案するゆるい体験を提供する。
 
 設計詳細: [`docs/design/detailed-design.md`](docs/design/detailed-design.md)
+Supabase 環境ガイド（ローカル / 本番）: [`docs/supabase-environments.md`](docs/supabase-environments.md)
 実装ノート（判断・引継ぎ）: [`docs/implementation-notes.md`](docs/implementation-notes.md)
 インフラ図: [`docs/infra/`](docs/infra/)
 

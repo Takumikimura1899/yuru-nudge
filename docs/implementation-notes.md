@@ -5,7 +5,8 @@
 
 関連:
 
-- インフラ構成図: [`docs/infra/`](./infra/) （`development.drawio` / `production.drawio`）
+- Supabase 環境ガイド（ローカル / 本番の違い）: [`./supabase-environments.md`](./supabase-environments.md)
+- インフラ構成図: [`./infra/`](./infra/) （`development.drawio` / `production.drawio`）
 
 ---
 
