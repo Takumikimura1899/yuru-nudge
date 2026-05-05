@@ -3,6 +3,10 @@
 実装の途中で見つけた制約、判断の理由、Phase 間の引継ぎ事項を記録する。
 設計書（`docs/design/detailed-design.md`）と重複する内容は書かない。
 
+関連:
+
+- インフラ構成図: [`docs/infra/`](./infra/) （`development.drawio` / `production.drawio`）
+
 ---
 
 ## Phase 1（基盤構築）

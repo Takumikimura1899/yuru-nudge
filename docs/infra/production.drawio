@@ -1,0 +1,94 @@
+<mxfile host="app.diagrams.net" agent="claude" version="24.0.0">
+  <diagram name="本番環境" id="production">
+    <mxGraphModel dx="1422" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="ゆるなっじ - 本番環境 (現状想定)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontSize=20;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="700" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" value="凡例:&#xa;青 = ユーザ / クライアント&#xa;緑 = サーバ / ランタイム&#xa;橙 = データストア&#xa;紫 = 外部 SaaS&#xa;黄 = ファイル / 機密情報&#xa;破線 = Phase 2 以降に追加" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4" vertex="1" parent="1">
+          <mxGeometry x="1140" y="20" width="220" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="user_device" value="エンドユーザの端末" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="320" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="ブラウザ&#xa;(MVP は PWA 化なし)&#xa;&#xa;Cookie: app_session=*&#xa;HttpOnly / SameSite=Lax" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="60" y="170" width="280" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="cloudflare" value="Cloudflare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff4e5;strokeColor=#f0a830;verticalAlign=top;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="440" y="120" width="640" height="500" as="geometry" />
+        </mxCell>
+        <mxCell id="cf_edge" value="Edge / DNS&#xa;(global anycast)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="460" y="170" width="200" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="cf_assets" value="静的アセット (キャッシュ)&#xa;&#xa;dist/client/&#xa;js / css / images" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="700" y="170" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="worker" value="Cloudflare Worker (yuru-nudge)&#xa;&#xa;TanStack Start SSR&#xa;Server Functions (createServerFn)&#xa;Request middleware (sessionMiddleware)&#xa;Function-attached middleware (authMiddleware)&#xa;&#xa;Compatibility: nodejs_compat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="460" y="280" width="440" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="cf_secrets" value="Worker Secrets / Env&#xa;(wrangler secret put)&#xa;&#xa;DATABASE_URL&#xa;SUPABASE_URL&#xa;SUPABASE_SERVICE_ROLE_KEY&#xa;APP_USER_ID&#xa;API_SECRET_KEY&#xa;GOOGLE_GENERATIVE_AI_API_KEY" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="940" y="280" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="cf_logs" value="Cloudflare Logs / Tail&#xa;wrangler tail で確認" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e8e8e8;strokeColor=#666666;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="460" y="500" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="supabase_cloud" value="Supabase Cloud" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f7e6;strokeColor=#3ecf8e;verticalAlign=top;fontSize=14;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="660" width="640" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="sb_pooler" value="Connection Pooler (Supavisor)&#xa;&#xa;Transaction mode (port 6543) を Worker から利用&#xa;(短命接続に向く)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="60" y="710" width="280" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="sb_pg" value="PostgreSQL&#xa;&#xa;tables:&#xa;  - profiles&#xa;  - mutterings&#xa;  - seeds&#xa;&#xa;マイグレーション: supabase db push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="380" y="710" width="280" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="gemini" value="Google Gemini API&#xa;(Phase 2 から)&#xa;&#xa;Vercel AI SDK 経由&#xa;@ai-sdk/google + generativeAI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8;dashed=1" vertex="1" parent="1">
+          <mxGeometry x="1140" y="280" width="240" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="developer" value="開発者" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;verticalAlign=top;fontSize=13;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1140" y="500" width="240" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="dev_local" value="ローカル&#xa;&#xa;bun run deploy&#xa;= vp build &amp;&amp; wrangler deploy" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="1160" y="550" width="200" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="dev_secrets" value="シークレット登録&#xa;wrangler secret put &lt;NAME&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;verticalAlign=top;align=left;spacingLeft=10;spacingTop=8" vertex="1" parent="1">
+          <mxGeometry x="1160" y="640" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e_user_edge" value="HTTPS&#xa;Cookie: app_session" style="endArrow=classic;html=1;fontSize=11;edgeStyle=orthogonalEdgeStyle" edge="1" parent="1" source="browser" target="cf_edge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_edge_assets" value="静的なら直接配信" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle;dashed=1" edge="1" parent="1" source="cf_edge" target="cf_assets">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_edge_worker" value="動的 (HTML / server fn)" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle" edge="1" parent="1" source="cf_edge" target="worker">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_secrets" value="binding 経由で参照" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle;dashed=1" edge="1" parent="1" source="worker" target="cf_secrets">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_pooler" value="Kysely + pg&#xa;TLS&#xa;DATABASE_URL (pooler)" style="endArrow=classic;html=1;fontSize=11;edgeStyle=orthogonalEdgeStyle" edge="1" parent="1" source="worker" target="sb_pooler">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pooler_pg" value="" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle" edge="1" parent="1" source="sb_pooler" target="sb_pg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_gemini" value="HTTPS&#xa;(つぶやき分類 + 応答)" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle;dashed=1" edge="1" parent="1" source="worker" target="gemini">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_worker_logs" value="" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle;dashed=1" edge="1" parent="1" source="worker" target="cf_logs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dev_deploy" value="wrangler deploy&#xa;(Cloudflare API)" style="endArrow=classic;html=1;fontSize=11;edgeStyle=orthogonalEdgeStyle" edge="1" parent="1" source="dev_local" target="cloudflare">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_dev_secrets" value="登録 / 更新" style="endArrow=classic;html=1;fontSize=10;edgeStyle=orthogonalEdgeStyle;dashed=1" edge="1" parent="1" source="dev_secrets" target="cf_secrets">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="future_note" value="未対応 / 想定&#xa;- 認証 (Supabase Auth) は Phase 後&#xa;- PWA 化は別途検討&#xa;- CI/CD (GitHub Actions) は未導入" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#cccccc;fontSize=10;verticalAlign=top;align=left;spacingLeft=8;spacingTop=4;dashed=1" vertex="1" parent="1">
+          <mxGeometry x="40" y="380" width="320" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
