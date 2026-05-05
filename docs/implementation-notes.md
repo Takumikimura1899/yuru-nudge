@@ -21,7 +21,10 @@
 ### 既知の課題
 
 - **`vp dev --port 3000` の `--port` が効かない**。Vite+ 0.1.20 の挙動で 5173 / 5177 など空きポートを勝手に取る。優先度低。
-- **`pg` の Cloudflare Workers でのプール挙動は未検証**。Phase 1 では `wrangler dev` 起動までしか確認していない。複数リクエストの並行で問題が出るようなら `postgres` (postgres.js) + `kysely-postgres-js` への切替が候補。`wrangler.jsonc` の `nodejs_compat` フラグは設定済み。
+
+### 解消済みの課題
+
+- ~~`pg` の Cloudflare Workers でのプール挙動は未検証~~ → **`postgres` (postgres.js) + `kysely-postgres-js` に切替済**。詳細は下記「DB ドライバ周り」を参照。
 
 ---
 
@@ -47,6 +50,50 @@
 - **curl で `/_serverFn/<id>` を直接叩くと 500 になる**。TanStack Start の framing protocol（`X-TSS-*` ヘッダ、特定の Content-Type）を満たしていないため。auth middleware の挙動とは独立した話なので、curl で auth を疎通確認したい場合はブラウザ経由（または fetch を作って正しい framing で送る）が必要。
 - **クライアント navigation 経由での auth middleware 発火は実機ブラウザ未検証**。Phase 2 でチャット UI からの実呼び出しが入った段階で確認すること。失敗パターンとしては Cookie 送信失敗（同一オリジンになっていない、SameSite 設定が厳しすぎる等）が考えられる。
 - **Cookie の値を `API_SECRET_KEY` 直結にしている**。理論的にはローテーションしづらい。MVP では問題ないが、将来 Supabase Auth に差し替える際にここも一緒に作り直す前提。
+
+---
+
+## ローカル環境の起動 / DB ドライバ周り
+
+### `bun run dev` は Supabase を自動起動する
+
+`package.json` の `dev` script は `bun run db:up && vp dev --port 3000` にしてある。`db:up` は `mise exec -- supabase start` のエイリアス。`supabase start` は冪等なので、起動済みなら状態を出力するだけ。
+
+**docker-compose.yml はあえて置いていない**。Supabase CLI が独自にコンテナを管理しているため、別建てで docker-compose.yml を持つと二重管理になる。CLI を一次窓口にする運用。
+
+### DB は per-request で作る
+
+最初は `pg`（node-postgres）でモジュールレベルに `Pool` を持たせていたが、Vite+ の cloudflare plugin（miniflare）下で **2 回目のリクエストが必ず失敗する**現象が出た。
+
+- エラー: `Cannot perform I/O on behalf of a different request. I/O objects ... created in the context of one request handler cannot be accessed from a different request's handler.`
+- 理由: Cloudflare Workers の制約で、I/O オブジェクト（DB 接続を含む）はリクエスト境界を越えて共有できない。モジュールレベルで作った接続は最初のリクエストの I/O context に紐付き、次のリクエストでは使えない。
+
+**対応:**
+
+1. ドライバを `pg` → `postgres` (postgres.js) + `kysely-postgres-js` に変更（Workers 互換が良い）。
+2. `src/server/db.ts` は `createDb()` 関数のみ export。**ハンドラ側でリクエスト毎にインスタンスを作り、`finally` で `destroy()` する**。
+
+```ts
+// src/server/profile.ts
+.handler(async ({ context }) => {
+  const db = createDb();
+  try {
+    // ... query
+  } finally {
+    await db.destroy();
+  }
+});
+```
+
+将来的に多くの server fn が DB を使うなら、function middleware で `context.db` を注入＋自動 `destroy` するパターンへリファクタの余地あり。
+
+### auth middleware は SSR loader 直接呼び出しを bypass する
+
+`src/server/middleware/auth.ts` は `pathname?.startsWith("/_serverFn/")` をチェックし、HTTP server fn 呼び出し以外（SSR ページ描画 / loader からの直接呼び出し）は **Cookie/Bearer なしで通過**させる。
+
+- 理由: 初回訪問時は Cookie がまだ無いため、loader が getProfile を呼ぶと auth 失敗で profile が空になり、画面が空欄でレンダリングされてしまう（ニワトリ・卵問題）。
+- TanStack Start の SSR-direct 呼び出しでは `pathname` が undefined になることがあるため、安全側で「`/_serverFn/` で始まる pathname のみ auth を強制」と扱う。
+- HTTP 経由（クライアントナビゲーションや外部 curl）では `pathname` が `/_serverFn/...` になるので、Cookie か Bearer が必須のまま。
 
 ---
 
