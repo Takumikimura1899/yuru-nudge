@@ -7,6 +7,8 @@ import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
+const isTest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+
 const config = defineConfig({
   fmt: {
     ignorePatterns: ["src/routeTree.gen.ts"],
@@ -20,7 +22,7 @@ const config = defineConfig({
   lint: { options: { typeAware: true, typeCheck: true } },
   plugins: [
     devtools(),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    !isTest && cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
     tanstackStart(),
     viteReact(),
