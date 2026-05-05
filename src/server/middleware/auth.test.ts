@@ -11,12 +11,10 @@ const { authMiddleware } = await import("./auth");
 
 const handler = authMiddleware.options.server!;
 
-const callMiddleware = (authorization?: string) => {
+const callMiddleware = (headers: Record<string, string>) => {
   const next = vi
     .fn()
     .mockResolvedValue({ context: {}, request: new Request("http://x"), pathname: "/" });
-  const headers = new Headers();
-  if (authorization !== undefined) headers.set("authorization", authorization);
   const request = new Request("http://localhost/_serverFn/test", { headers });
   return {
     next,
@@ -34,31 +32,66 @@ describe("authMiddleware", () => {
     vi.clearAllMocks();
   });
 
-  test("Bearer ヘッダがないと 401", async () => {
-    const { next, result } = callMiddleware();
-    const response = (await result) as Response;
-    expect(response).toBeInstanceOf(Response);
-    expect(response.status).toBe(401);
-    expect(next).not.toHaveBeenCalled();
+  describe("Bearer ヘッダ", () => {
+    test("無いと 401", async () => {
+      const { next, result } = callMiddleware({});
+      const response = (await result) as Response;
+      expect(response).toBeInstanceOf(Response);
+      expect(response.status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test("値が違うと 401", async () => {
+      const { next, result } = callMiddleware({ authorization: "Bearer wrong" });
+      expect(((await result) as Response).status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test("Bearer prefix がないと 401", async () => {
+      const { next, result } = callMiddleware({ authorization: "test-secret" });
+      expect(((await result) as Response).status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test("正しい値なら通過", async () => {
+      const { next } = callMiddleware({ authorization: "Bearer test-secret" });
+      expect(next).toHaveBeenCalledOnce();
+      expect(next).toHaveBeenCalledWith({ context: { userId: "test-user" } });
+    });
   });
 
-  test("Bearer の値が違うと 401", async () => {
-    const { next, result } = callMiddleware("Bearer wrong");
-    const response = (await result) as Response;
-    expect(response.status).toBe(401);
-    expect(next).not.toHaveBeenCalled();
+  describe("app_session Cookie", () => {
+    test("値が一致すれば通過", async () => {
+      const { next } = callMiddleware({ cookie: "app_session=test-secret" });
+      expect(next).toHaveBeenCalledOnce();
+      expect(next).toHaveBeenCalledWith({ context: { userId: "test-user" } });
+    });
+
+    test("他の Cookie に紛れていても通過", async () => {
+      const { next } = callMiddleware({
+        cookie: "foo=bar; app_session=test-secret; baz=qux",
+      });
+      expect(next).toHaveBeenCalledOnce();
+    });
+
+    test("値が違うと 401", async () => {
+      const { next, result } = callMiddleware({ cookie: "app_session=wrong" });
+      expect(((await result) as Response).status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test("Cookie が空だと 401", async () => {
+      const { next, result } = callMiddleware({ cookie: "" });
+      expect(((await result) as Response).status).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
   });
 
-  test("Bearer prefix がないと 401", async () => {
-    const { next, result } = callMiddleware("test-secret");
-    const response = (await result) as Response;
-    expect(response.status).toBe(401);
-    expect(next).not.toHaveBeenCalled();
-  });
-
-  test("正しい Bearer なら next に userId を注入して通過", async () => {
-    const { next } = callMiddleware("Bearer test-secret");
+  test("Cookie と Bearer どちらか一方が正しければ通過", async () => {
+    const { next } = callMiddleware({
+      cookie: "app_session=wrong",
+      authorization: "Bearer test-secret",
+    });
     expect(next).toHaveBeenCalledOnce();
-    expect(next).toHaveBeenCalledWith({ context: { userId: "test-user" } });
   });
 });
