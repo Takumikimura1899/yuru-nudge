@@ -87,6 +87,20 @@
 
 将来的に多くの server fn が DB を使うなら、function middleware で `context.db` を注入＋自動 `destroy` するパターンへリファクタの余地あり。
 
+### TanStack DevTools パネルは外した
+
+TanStack Router DevTools パネル（`<TanStackDevtools>` + `@tanstack/react-router-devtools` + `@tanstack/devtools-vite`）は **画面ちらつきの原因** だったため取り外した。
+
+- 症状: dev で常時、画面隅にあるトグルボタン付近が 2 秒周期で `scale + rotate` のアニメで脈打ち、ちらつきとして体感される
+- 原因: パネル内の H3（`plugin-title-container-tanstack-router-0`）に goober 生成の無限 keyframe（`scale(1)→scale(1.1) rotate(10deg)`）が掛かっていて、`iterations: Infinity` でずっと走っていた
+- 対応: ライブラリと vite plugin を削除（`bun remove @tanstack/react-router-devtools @tanstack/react-devtools @tanstack/devtools-vite`）、`__root.tsx` の `<TanStackDevtools>` を撤去
+- 検証: Playwright + `document.getAnimations()` / `MutationObserver` で「実行中の無限アニメ 0、DOM mutation 8 秒で 0」を確認
+
+ルーター state を覗きたくなったら：
+
+- ブラウザの React DevTools で components / props を辿る
+- 一時的に `<TanStackDevtools>` を再追加するか、`@tanstack/react-router-devtools` の `TanStackRouterDevtools` を別ルートで条件付き有効化する
+
 ### auth middleware は SSR loader 直接呼び出しを bypass する
 
 `src/server/middleware/auth.ts` は `pathname?.startsWith("/_serverFn/")` をチェックし、HTTP server fn 呼び出し以外（SSR ページ描画 / loader からの直接呼び出し）は **Cookie/Bearer なしで通過**させる。

@@ -1,5 +1,4 @@
 import { defineConfig } from "vite-plus";
-import { devtools } from "@tanstack/devtools-vite";
 
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 
@@ -11,7 +10,7 @@ const isTest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 
 const config = defineConfig({
   fmt: {
-    ignorePatterns: ["src/routeTree.gen.ts", "src/server/db-types.ts"],
+    ignorePatterns: ["src/routeTree.gen.ts", "src/server/db-types.ts", ".playwright-mcp/**"],
   },
   resolve: {
     tsconfigPaths: true,
@@ -21,7 +20,6 @@ const config = defineConfig({
   },
   lint: { options: { typeAware: true, typeCheck: true } },
   plugins: [
-    devtools(),
     !isTest && cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
     tanstackStart(),
