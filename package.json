@@ -12,6 +12,9 @@
     "test": "vp test run",
     "check": "vp check --fix",
     "deploy": "bun run build && wrangler deploy",
+    "db:gen": "kysely-codegen --dialect postgres --include-pattern 'public.*' --env-file=.env.local --out-file src/server/db-types.ts",
+    "db:reset": "supabase db reset",
+    "db:migrate:new": "supabase migration new",
     "prepare": "vp config"
   },
   "dependencies": {

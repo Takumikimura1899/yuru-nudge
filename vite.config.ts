@@ -11,7 +11,7 @@ const isTest = process.env.VITEST === "true" || process.env.NODE_ENV === "test";
 
 const config = defineConfig({
   fmt: {
-    ignorePatterns: ["src/routeTree.gen.ts"],
+    ignorePatterns: ["src/routeTree.gen.ts", "src/server/db-types.ts"],
   },
   resolve: {
     tsconfigPaths: true,
