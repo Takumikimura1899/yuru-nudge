@@ -5,8 +5,12 @@
 
 関連:
 
-- Supabase 環境ガイド（ローカル / 本番の違い）: [`./supabase-environments.md`](./supabase-environments.md)
-- インフラ構成図: [`./infra/`](./infra/) （`development.drawio` / `production.drawio`）
+- [`./supabase-environments.md`](./supabase-environments.md) — ローカル / 本番の違い
+- [`./db-access-pattern.md`](./db-access-pattern.md) — Kysely + per-request DB / マイグレーション
+- [`./auth-flow.md`](./auth-flow.md) — Cookie + Bearer 二経路認証
+- [`./deploy.md`](./deploy.md) — デプロイ手順 / CI/CD 戦略
+- [`./testing.md`](./testing.md) — テスト方針
+- [`./infra/`](./infra/) — インフラ構成図（draw.io）
 
 ---
 

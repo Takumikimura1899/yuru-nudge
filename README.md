@@ -4,9 +4,16 @@
 最適なタイミングでタスクを 1 つだけ提案するゆるい体験を提供する。
 
 設計詳細: [`docs/design/detailed-design.md`](docs/design/detailed-design.md)
-Supabase 環境ガイド（ローカル / 本番）: [`docs/supabase-environments.md`](docs/supabase-environments.md)
-実装ノート（判断・引継ぎ）: [`docs/implementation-notes.md`](docs/implementation-notes.md)
-インフラ図: [`docs/infra/`](docs/infra/)
+
+ガイドドキュメント:
+
+- [`docs/supabase-environments.md`](docs/supabase-environments.md) — ローカル / 本番の違い
+- [`docs/db-access-pattern.md`](docs/db-access-pattern.md) — Kysely + per-request DB / マイグレーション
+- [`docs/auth-flow.md`](docs/auth-flow.md) — Cookie + Bearer 二経路認証
+- [`docs/deploy.md`](docs/deploy.md) — デプロイ手順 / CI/CD 戦略
+- [`docs/testing.md`](docs/testing.md) — テスト方針
+- [`docs/implementation-notes.md`](docs/implementation-notes.md) — 実装の判断・引継ぎ
+- [`docs/infra/`](docs/infra/) — インフラ図（draw.io）
 
 ## 技術スタック
 
