@@ -1,29 +1,37 @@
 import { createFileRoute } from "@tanstack/react-router";
+import ChatTimeline from "../components/chat/ChatTimeline";
+import IntensityToggle from "../components/chat/IntensityToggle";
+import MutterForm from "../components/chat/MutterForm";
+import { toMessages, useChat, type Intensity } from "../components/chat/useChat";
+import { getTimeline } from "../server/mutterings";
 import { getProfile } from "../server/profile";
 
 export const Route = createFileRoute("/")({
   component: App,
-  loader: async () => ({ profile: await getProfile() }),
+  loader: async () => {
+    const [profile, timeline] = await Promise.all([getProfile(), getTimeline()]);
+    return { profile, timeline };
+  },
 });
 
 function App() {
-  const { profile } = Route.useLoaderData();
+  const { profile, timeline } = Route.useLoaderData();
+  const { messages, intensity, thinking, send, changeIntensity } = useChat({
+    initialMessages: toMessages(timeline),
+    initialIntensity: profile.intensity_level === "sharp" ? "sharp" : ("chill" as Intensity),
+  });
+
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
-      <section className="island-shell rise-in rounded-[2rem] px-6 py-10 sm:px-10 sm:py-14">
-        <p className="island-kicker mb-3">ゆるなっじ</p>
-        <h1 className="display-title mb-5 text-4xl leading-[1.05] font-bold tracking-tight text-[var(--sea-ink)] sm:text-5xl">
-          まだなにもないよ。
-        </h1>
-        <p className="mb-6 max-w-2xl text-base text-[var(--sea-ink-soft)] sm:text-lg">
-          ナッジーはまだお散歩中。Phase 2 でこの場所につぶやきの入り口ができます。
-        </p>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-[var(--sea-ink-soft)]">
-          <dt className="font-semibold">user_id</dt>
-          <dd className="font-mono">{profile.user_id}</dd>
-          <dt className="font-semibold">intensity</dt>
-          <dd className="font-mono">{profile.intensity_level}</dd>
-        </dl>
+      <section className="island-shell rise-in flex flex-col gap-6 rounded-[2rem] px-5 py-8 sm:px-8 sm:py-10">
+        <div className="flex items-center justify-between gap-3">
+          <p className="island-kicker m-0">ゆるなっじ</p>
+          <IntensityToggle value={intensity} onChange={changeIntensity} />
+        </div>
+
+        <ChatTimeline messages={messages} thinking={thinking} />
+
+        <MutterForm onSend={send} busy={thinking} />
       </section>
     </main>
   );
