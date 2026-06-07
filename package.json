@@ -20,6 +20,7 @@
     "prepare": "vp config"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.80",
     "@cloudflare/vite-plugin": "^1.35.0",
     "@supabase/supabase-js": "^2.105.3",
     "@t3-oss/env-core": "^0.13.11",
@@ -28,6 +29,7 @@
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
     "@tanstack/router-plugin": "^1.167.33",
+    "ai": "^6.0.197",
     "kysely": "^0.28.17",
     "kysely-postgres-js": "^3.0.0",
     "lucide-react": "^0.545.0",
@@ -40,7 +42,9 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.19.17",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
