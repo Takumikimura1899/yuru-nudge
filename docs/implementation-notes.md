@@ -23,13 +23,10 @@
 - **kysely-codegen は `--include-pattern 'public.*'` 必須**。デフォルトだと Supabase 内部の auth/storage/realtime/vault スキーマも含めて 51 テーブル拾ってしまう。`.env.local` を `--env-file` で読ませる。
 - **`seeds.user_id` を冗長に持たせる判断**。設計書 §13 では `seeds.muttering_id` 経由で `mutterings.user_id` を辿れるが、ナッジ抽出（`status='pending'` などのクエリ）の効率上 `seeds` にも `user_id` を持たせた。この判断は実装時のもので、設計書には反映していない。
 
-### 既知の課題
-
-- **`vp dev --port 3000` の `--port` が効かない**。Vite+ 0.1.20 の挙動で 5173 / 5177 など空きポートを勝手に取る。優先度低。
-
 ### 解消済みの課題
 
 - ~~`pg` の Cloudflare Workers でのプール挙動は未検証~~ → **`postgres` (postgres.js) + `kysely-postgres-js` に切替済**。詳細は下記「DB ドライバ周り」を参照。
+- ~~`vp dev --port 3000` の `--port` が効かない~~ → Phase 2 実装時（2026-06-07、Vite+ 0.1.20 のまま node_modules をクリーン再インストール後）に **3000 で起動することを確認**。再発したら node_modules の混在インストール（下記 Phase 2 ハマりどころ参照）を疑う。
 
 ---
 
@@ -55,6 +52,30 @@
 - **curl で `/_serverFn/<id>` を直接叩くと 500 になる**。TanStack Start の framing protocol（`X-TSS-*` ヘッダ、特定の Content-Type）を満たしていないため。auth middleware の挙動とは独立した話なので、curl で auth を疎通確認したい場合はブラウザ経由（または fetch を作って正しい framing で送る）が必要。
 - **クライアント navigation 経由での auth middleware 発火は実機ブラウザ未検証**。Phase 2 でチャット UI からの実呼び出しが入った段階で確認すること。失敗パターンとしては Cookie 送信失敗（同一オリジンになっていない、SameSite 設定が厳しすぎる等）が考えられる。
 - **Cookie の値を `API_SECRET_KEY` 直結にしている**。理論的にはローテーションしづらい。MVP では問題ないが、将来 Supabase Auth に差し替える際にここも一緒に作り直す前提。
+
+---
+
+## Phase 2（つぶやきとAI解析）
+
+### 採用した判断
+
+- **`mutterings.reply` カラムを追加（設計書 §13.2 からの逸脱）**。チャット履歴（直近20件）でナッジーの発言を復元する必要があるが、設計書のデータモデルにはナッジー応答の保存先がなかった。1つぶやき = 1往復（content + reply）として mutterings に持たせる判断。別テーブルにしなかったのは、応答とつぶやきが厳密に 1:1 で JOIN 不要、履歴取得が単純になるため。
+- **AI SDK は v6（`ai@6.x` + `@ai-sdk/google@3.x`）**。v6 では `generateObject` が deprecated のため、`generateText` + `Output.object`（zod スキーマ）で構造化出力を取得。LLM 呼び出しは `src/server/ai/nudgey.ts` の `classifyAndReply()` 1関数に閉じており、SDK の API 変更はここだけで吸収する。
+- **分類・応答・タスク整形を 1 回の LLM 呼び出しで取得**（設計書 §4.4 の MVP 方針）。スキーマは `{ category, reply, processed_task }`。`processed_task` は `.nullable()`（`.optional()` ではなく）にして Gemini がキーを常に返すようにしている。
+- **LLM 失敗時は何も保存しない**。`classifyAndReply` は throw せず `{ok:false, reply: キャラ内エラー}` を返し、`processMutter` は保存をスキップ。UI は楽観表示したユーザー発言を取り消し、入力テキストをフォームに残す（再送しやすい）。
+- **server fn のコアロジックは純関数として切り出し**（`processMutter` / `fetchTimeline` / `setIntensity`）。TanStack Start の `createServerFn().handler()` はテストから直接呼べないため、`Kysely<DB>` を引数に取る関数に分離し、server fn は createDb + destroy の薄いラッパーにした。
+- **mood 淘汰は新規挿入と同一トランザクション**。挿入後に「直近30件の id 集合に入らない mood」を削除（`not in` サブクエリ）。
+- **`createServerFn` の validator は `.inputValidator()`**。ドキュメント等で見かける `.validator()` は現バージョン（@tanstack/react-start 1.167）には存在しない。zod スキーマを直接渡せる（Standard Schema 対応）。
+
+### ハマりどころ
+
+- **node_modules に bun の isolated インストール（.pnpm 形式）と通常形式が混在し、React が 2 インスタンスになった**。Phase 1 時点（3月）のインストールが isolated 形式で `react@19.2.4` を抱えたまま、後から `react@19.2.5` が通常形式で入り、コンポーネントテストが `Cannot read properties of null (reading 'useState')` で全滅。`rm -rf node_modules && bun install` で解消。
+- **コンポーネントテストは jsdom 環境をファイル先頭の `// @vitest-environment jsdom` で指定**。vite-plus のテストはデフォルト node 環境。jest-dom マッチャーは各テストファイルで `import "@testing-library/jest-dom/vitest"`（setup ファイルは置いていない）。
+
+### 実機検証結果（2026-06-07）
+
+- **auth middleware のクライアント経由発火を実機確認（Phase 1.5 の引継ぎ事項を解消）**。ブラウザからのつぶやき送信で `POST /_serverFn/...`（postMutter）が発火し、HttpOnly Cookie（app_session）認証で 200 が返ることを確認。SameSite=Lax / 同一オリジンで問題なし。
+- E2E フロー一式を確認: seed つぶやき → mutterings + seeds（pending）保存・ナッジー応答表示 / mood つぶやき → 共感応答・seeds 保存なし / intensity 切替 → profiles 更新・応答トーン変化 / リロード → 履歴20件復元（reply カラムからナッジー発言も復元）・intensity 状態復元。
 
 ---
 
