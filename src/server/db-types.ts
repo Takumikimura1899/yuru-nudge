@@ -16,6 +16,7 @@ export interface Mutterings {
   content: string;
   created_at: Generated<Timestamp>;
   id: Generated<string>;
+  reply: string | null;
   user_id: string;
 }
 
