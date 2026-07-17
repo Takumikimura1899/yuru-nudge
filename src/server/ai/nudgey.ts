@@ -87,20 +87,26 @@ export async function selectNudge(args: {
 
 /**
  * 完了報告への答え合わせ応答を生成する（設計書 §3.5）。
- * 失敗時は throw せず、intensity に応じた静的フォールバック文を返す。
+ * completedCount が渡されたときは累計セリフの織り込みを試みる（設計書 §8.2, §10.2）。
+ * 失敗時は throw せず、intensity に応じた静的フォールバック文を返す（累計言及は含まない）。
  */
 export async function generateCompletionReply(args: {
   task: string;
   prophecy: string | null;
   intensity: string;
+  completedCount?: number | null;
 }): Promise<string> {
   try {
-    const prompt = `タスク: ${args.task}\n予言: ${args.prophecy ?? "（なし）"}`;
+    const tallyLine = args.completedCount != null ? `\n累計完了数: ${args.completedCount}` : "";
+    const prompt = `タスク: ${args.task}\n予言: ${args.prophecy ?? "（なし）"}${tallyLine}`;
 
     const { output } = await generateText({
       model: google(NUDGEY_MODEL),
       output: Output.object({ schema: completionReplySchema }),
-      system: buildCompletionPrompt({ intensity: args.intensity }),
+      system: buildCompletionPrompt({
+        intensity: args.intensity,
+        completedCount: args.completedCount,
+      }),
       prompt,
     });
 

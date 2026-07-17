@@ -7,6 +7,8 @@ import {
   MOOD_LOG_LIMIT,
   NUDGE_INTERVAL_HOURS,
   NUDGE_TIMEOUT_DAYS,
+  TALLY_MENTION_MIN_COUNT,
+  TALLY_MENTION_PROBABILITY,
 } from "./ai/constants";
 import {
   generateCompletionReply,
@@ -307,7 +309,7 @@ export type ReactionResult =
  */
 export async function reactToNudge(
   db: Kysely<DB>,
-  args: { userId: string; seedId: string; reaction: ReactionKind },
+  args: { userId: string; seedId: string; reaction: ReactionKind; random?: () => number },
 ): Promise<ReactionResult> {
   switch (args.reaction) {
     case "completed":
@@ -323,8 +325,10 @@ const ALREADY_REACTED: ReactionResult = { ok: true, alreadyReacted: true, reply:
 
 async function reactCompleted(
   db: Kysely<DB>,
-  args: { userId: string; seedId: string },
+  args: { userId: string; seedId: string; random?: () => number },
 ): Promise<ReactionResult> {
+  const random = args.random ?? Math.random;
+
   const updated = await db
     .updateTable("seeds")
     .set({ status: "completed", updated_at: new Date() })
@@ -339,13 +343,40 @@ async function reactCompleted(
   }
 
   const intensity = await fetchIntensity(db, args.userId);
+  const completedCount = await maybeFetchCompletedCount(db, args.userId, random);
   const reply = await generateCompletionReply({
     task: updated.processed_task,
     prophecy: updated.prophecy,
     intensity,
+    completedCount,
   });
 
   return { ok: true, reply };
+}
+
+/**
+ * 累計セリフ織り込み（設計書 §8.2, §10.2）の対象件数を確率的に取得する。
+ * ロールに外れた場合は COUNT クエリ自体を打たない（不要なDB往復を避ける）。
+ * postgres.js は COUNT を string で返すため Number() cast が必須。
+ */
+async function maybeFetchCompletedCount(
+  db: Kysely<DB>,
+  userId: string,
+  random: () => number,
+): Promise<number | null> {
+  if (random() >= TALLY_MENTION_PROBABILITY) {
+    return null;
+  }
+
+  const row = await db
+    .selectFrom("seeds")
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .where("user_id", "=", userId)
+    .where("status", "=", "completed")
+    .executeTakeFirst();
+
+  const count = Number(row?.count ?? 0);
+  return count >= TALLY_MENTION_MIN_COUNT ? count : null;
 }
 
 async function reactArchived(

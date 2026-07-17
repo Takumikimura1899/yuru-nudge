@@ -435,7 +435,7 @@ describe("reactToNudge", () => {
   });
 
   describe("completed", () => {
-    test("nudged → completed に更新し、LLM の答え合わせ応答を返す", async () => {
+    test("nudged → completed に更新し、LLM の答え合わせ応答を返す（累計ロールに外れれば COUNT は打たず completedCount は null）", async () => {
       const updatedSeed = { id: "seed-1", processed_task: "部屋を片付ける", prophecy: "..." };
       db.executeTakeFirst
         .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
@@ -446,6 +446,7 @@ describe("reactToNudge", () => {
         userId: "test-user",
         seedId: "seed-1",
         reaction: "completed",
+        random: () => 1, // TALLY_MENTION_PROBABILITY(0.3) 以上 → ロールに外れる
       });
 
       expect(result).toEqual({ ok: true, reply: "いいね、お疲れさま" });
@@ -453,10 +454,12 @@ describe("reactToNudge", () => {
       expect(db.where).toHaveBeenCalledWith("id", "=", "seed-1");
       expect(db.where).toHaveBeenCalledWith("user_id", "=", "test-user");
       expect(db.where).toHaveBeenCalledWith("status", "=", "nudged");
+      expect(db.executeTakeFirst).toHaveBeenCalledTimes(2); // COUNT クエリは打たれない
       expect(generateCompletionReplyMock).toHaveBeenCalledWith({
         task: "部屋を片付ける",
         prophecy: "...",
         intensity: "sharp",
+        completedCount: null,
       });
     });
 
@@ -472,6 +475,77 @@ describe("reactToNudge", () => {
       expect(result).toEqual({ ok: true, alreadyReacted: true, reply: "" });
       expect(generateCompletionReplyMock).not.toHaveBeenCalled();
       expect(db.executeTakeFirst).toHaveBeenCalledTimes(1);
+    });
+
+    describe("累計セリフ織り込み", () => {
+      test("ロール当選（random < 0.3）かつ completed 総数が3件以上なら completedCount を渡す（postgres.js の string count を Number cast）", async () => {
+        const updatedSeed = { id: "seed-1", processed_task: "部屋を片付ける", prophecy: "..." };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
+          .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+          .mockResolvedValueOnce({ count: "3" }); // COUNT（postgres.js は string で返す）
+        generateCompletionReplyMock.mockResolvedValue("やったんだ〜。えらいねぇ");
+
+        const result = await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+          random: () => 0, // TALLY_MENTION_PROBABILITY(0.3) 未満 → 当選
+        });
+
+        expect(result).toEqual({ ok: true, reply: "やったんだ〜。えらいねぇ" });
+        expect(db.executeTakeFirst).toHaveBeenCalledTimes(3);
+        expect(db.selectFrom).toHaveBeenCalledWith("seeds");
+        expect(db.where).toHaveBeenCalledWith("status", "=", "completed");
+        expect(generateCompletionReplyMock).toHaveBeenCalledWith({
+          task: "部屋を片付ける",
+          prophecy: "...",
+          intensity: "chill",
+          completedCount: 3,
+        });
+      });
+
+      test("ロール当選しても completed 総数が下限(3件)未満なら completedCount は null", async () => {
+        const updatedSeed = { id: "seed-1", processed_task: "部屋を片付ける", prophecy: "..." };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
+          .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+          .mockResolvedValueOnce({ count: "2" }); // COUNT: 下限未満
+        generateCompletionReplyMock.mockResolvedValue("やったんだ〜。えらいねぇ");
+
+        const result = await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+          random: () => 0,
+        });
+
+        expect(result).toEqual({ ok: true, reply: "やったんだ〜。えらいねぇ" });
+        expect(generateCompletionReplyMock).toHaveBeenCalledWith({
+          task: "部屋を片付ける",
+          prophecy: "...",
+          intensity: "chill",
+          completedCount: null,
+        });
+      });
+
+      test("random 未指定時は既定で Math.random を使う（呼び出し確認のみ）", async () => {
+        const updatedSeed = { id: "seed-1", processed_task: "部屋を片付ける", prophecy: "..." };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed)
+          .mockResolvedValueOnce({ intensity_level: "chill" });
+        const mathRandomSpy = vi.spyOn(Math, "random").mockReturnValue(1);
+        generateCompletionReplyMock.mockResolvedValue("...");
+
+        await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+        });
+
+        expect(mathRandomSpy).toHaveBeenCalled();
+        mathRandomSpy.mockRestore();
+      });
     });
   });
 

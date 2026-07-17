@@ -101,6 +101,25 @@ describe("buildCompletionPrompt", () => {
   ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
     expect(buildCompletionPrompt({ intensity })).toContain(keyword);
   });
+
+  test("completedCount 未指定時は累計言及節を含まない", () => {
+    const prompt = buildCompletionPrompt({ intensity: "chill" });
+    expect(prompt).not.toContain("累計言及");
+    expect(prompt).not.toContain("累計完了数");
+  });
+
+  test("completedCount が渡されたら累計言及節（自慢げにしない・次を促さない）と入力形式の説明を含む", () => {
+    const prompt = buildCompletionPrompt({ intensity: "chill", completedCount: 5 });
+    expect(prompt).toContain("累計言及");
+    expect(prompt).toContain("累計完了数");
+    expect(prompt).toContain("自慢げにしない");
+    expect(prompt).toContain("次を促さない");
+  });
+
+  test("completedCount が null のときは未指定時と同様に累計言及節を含まない", () => {
+    const prompt = buildCompletionPrompt({ intensity: "chill", completedCount: null });
+    expect(prompt).not.toContain("累計言及");
+  });
 });
 
 describe("buildSoftenPrompt", () => {

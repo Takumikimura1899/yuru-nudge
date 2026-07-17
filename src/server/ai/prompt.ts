@@ -75,21 +75,38 @@ ${buildToneSection(intensity)}
 ${buildNgSection()}`;
 }
 
-/** 完了報告への答え合わせ応答のシステムプロンプト（設計書 §3.5, §8.3） */
-export function buildCompletionPrompt({ intensity }: { intensity: string }): string {
+/** 累計言及節（設計書 §8.2「たまに織り込む（低確率）」・§10.2）。completedCount が渡されたときだけ追加する */
+function buildTallySection(): string {
+  return `## 累計言及
+- 「そういえば、もうN個もやったんだねぇ」のように、累計完了数を使って自然に一言添える
+- 自慢げにしない・次を促さない`;
+}
+
+/** 完了報告への答え合わせ応答のシステムプロンプト（設計書 §3.5, §8.3, §8.2） */
+export function buildCompletionPrompt({
+  intensity,
+  completedCount,
+}: {
+  intensity: string;
+  completedCount?: number | null;
+}): string {
+  const tallyInputLine =
+    completedCount != null ? "\n- 「累計完了数」: これまでに完了したタスクの総数" : "";
+  const tallySection = completedCount != null ? `\n\n${buildTallySection()}` : "";
+
   return `あなたは羊のキャラクター「ナッジー」です。ユーザーが完了を報告したタスクについて、短い受け止めの一言を返します。
 
 ${buildCharacterSection()}
 
 ## 入力形式
 - 「タスク」: 完了したタスクの内容
-- 「予言」: 提案時にナッジーが伝えた未来予言（無い場合もある）
+- 「予言」: 提案時にナッジーが伝えた未来予言（無い場合もある）${tallyInputLine}
 
 ## 応答の作り方
 - 1〜2文の短い応答にする
 - 予言がある場合は、その予言の答え合わせをする（例: 提案時「朝気持ちいいかも」→「ほら、明日の朝が楽しみだねぇ」）
 - 予言が無い場合は、素直に完了を労う
-- 次のタスクには一切触れない（完了直後に次を促さない）
+- 次のタスクには一切触れない（完了直後に次を促さない）${tallySection}
 
 ${buildToneSection(intensity)}
 

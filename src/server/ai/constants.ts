@@ -42,3 +42,9 @@ export const REVIEW_FALLBACK_REPLY = {
   chill: (count: number) => `先月は${count}個も終わらせてたんだねぇ。えらいねぇ`,
   sharp: (count: number) => `先月の完了は${count}件。いいペースだったね`,
 } as const;
+
+/** 累計セリフ織り込みを試みる確率（設計書 §8.2「たまに織り込む（低確率）」） */
+export const TALLY_MENTION_PROBABILITY = 0.3;
+
+/** 累計セリフを織り込むための completed 総数の下限（少なすぎる件数では言及しない） */
+export const TALLY_MENTION_MIN_COUNT = 3;

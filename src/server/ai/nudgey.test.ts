@@ -199,6 +199,62 @@ describe("generateCompletionReply", () => {
     expect(args.prompt).toContain("部屋を片付ける");
     expect(args.prompt).toContain("（なし）");
   });
+
+  test("completedCount 未指定時はプロンプトに累計完了数の行を含めない", async () => {
+    generateTextMock.mockResolvedValue({ output: { reply: "..." } });
+
+    await generateCompletionReply({ task: "部屋を片付ける", prophecy: null, intensity: "chill" });
+
+    const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string; system: string };
+    expect(args.prompt).not.toContain("累計完了数");
+    expect(args.system).not.toContain("累計言及");
+  });
+
+  test("completedCount が渡されたらプロンプトに累計完了数を含め、system に累計言及節を含める", async () => {
+    generateTextMock.mockResolvedValue({
+      output: { reply: "そういえば、もう3個もやったんだねぇ" },
+    });
+
+    const result = await generateCompletionReply({
+      task: "部屋を片付ける",
+      prophecy: null,
+      intensity: "chill",
+      completedCount: 3,
+    });
+
+    const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string; system: string };
+    expect(result).toBe("そういえば、もう3個もやったんだねぇ");
+    expect(args.prompt).toContain("累計完了数: 3");
+    expect(args.system).toContain("累計言及");
+  });
+
+  test("completedCount が null なら未指定と同様に累計言及節を含めない", async () => {
+    generateTextMock.mockResolvedValue({ output: { reply: "..." } });
+
+    await generateCompletionReply({
+      task: "部屋を片付ける",
+      prophecy: null,
+      intensity: "chill",
+      completedCount: null,
+    });
+
+    const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string; system: string };
+    expect(args.prompt).not.toContain("累計完了数");
+    expect(args.system).not.toContain("累計言及");
+  });
+
+  test("LLM 呼び出し失敗時は completedCount を渡していても累計言及なしの静的フォールバックを返す", async () => {
+    generateTextMock.mockRejectedValue(new Error("rate limited"));
+
+    const result = await generateCompletionReply({
+      task: "部屋を片付ける",
+      prophecy: null,
+      intensity: "chill",
+      completedCount: 5,
+    });
+
+    expect(result).toBe(COMPLETION_FALLBACK_REPLY.chill);
+  });
 });
 
 describe("generateSoftenedTask", () => {
