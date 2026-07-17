@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({
 
 function App() {
   const { profile, timeline } = Route.useLoaderData();
-  const { messages, intensity, thinking, send, changeIntensity } = useChat({
+  const { messages, intensity, thinking, send, changeIntensity, react, keep, discard } = useChat({
     initialMessages: toMessages(timeline),
     initialIntensity: profile.intensity_level === "sharp" ? "sharp" : ("chill" as Intensity),
   });
@@ -29,7 +29,13 @@ function App() {
           <IntensityToggle value={intensity} onChange={changeIntensity} />
         </div>
 
-        <ChatTimeline messages={messages} thinking={thinking} />
+        <ChatTimeline
+          messages={messages}
+          thinking={thinking}
+          onReact={react}
+          onKeep={keep}
+          onDiscard={discard}
+        />
 
         <MutterForm onSend={send} busy={thinking} />
       </section>

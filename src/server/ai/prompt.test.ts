@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vite-plus/test";
-import { buildPrompt } from "./prompt";
+import {
+  buildCompletionPrompt,
+  buildNudgeSelectPrompt,
+  buildPrompt,
+  buildSoftenPrompt,
+} from "./prompt";
 
 describe("buildPrompt", () => {
   test("ナッジーのキャラクター定義を含む", () => {
@@ -42,5 +47,76 @@ describe("buildPrompt", () => {
 
   test("未知の intensity は chill として扱う", () => {
     expect(buildPrompt({ intensity: "unknown" })).toContain("Chill");
+  });
+});
+
+describe("buildNudgeSelectPrompt", () => {
+  test("入力形式（候補・最近の気分）の説明を含む", () => {
+    const prompt = buildNudgeSelectPrompt({ intensity: "chill" });
+    expect(prompt).toContain("候補");
+    expect(prompt).toContain("最近の気分");
+  });
+
+  test("候補にない id を作らない旨の選択基準を含む", () => {
+    const prompt = buildNudgeSelectPrompt({ intensity: "chill" });
+    expect(prompt).toContain("候補にある id をそのまま");
+    expect(prompt).toContain("候補にない id を作らない");
+  });
+
+  test("未来予言（prophecy）の作り方を含む", () => {
+    const prompt = buildNudgeSelectPrompt({ intensity: "chill" });
+    expect(prompt).toContain("未来予言");
+    expect(prompt).toContain("prophecy");
+  });
+
+  test("NGトーン（禁止事項）を含む", () => {
+    expect(buildNudgeSelectPrompt({ intensity: "chill" })).toContain("禁止事項");
+  });
+
+  test.each([
+    { intensity: "chill", keyword: "Chill" },
+    { intensity: "sharp", keyword: "Sharp" },
+  ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
+    expect(buildNudgeSelectPrompt({ intensity })).toContain(keyword);
+  });
+});
+
+describe("buildCompletionPrompt", () => {
+  test("入力形式（タスク・予言）の説明を含む", () => {
+    const prompt = buildCompletionPrompt({ intensity: "chill" });
+    expect(prompt).toContain("タスク");
+    expect(prompt).toContain("予言");
+  });
+
+  test("予言の答え合わせと、次のタスクに触れない旨の方針を含む", () => {
+    const prompt = buildCompletionPrompt({ intensity: "chill" });
+    expect(prompt).toContain("答え合わせ");
+    expect(prompt).toContain("次のタスクには一切触れない");
+  });
+
+  test.each([
+    { intensity: "chill", keyword: "Chill" },
+    { intensity: "sharp", keyword: "Sharp" },
+  ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
+    expect(buildCompletionPrompt({ intensity })).toContain(keyword);
+  });
+});
+
+describe("buildSoftenPrompt", () => {
+  test("元のタスクより明らかに小さい粒度にする旨の緩和基準を含む", () => {
+    const prompt = buildSoftenPrompt({ intensity: "chill" });
+    expect(prompt).toContain("softened_task");
+    expect(prompt).toContain("明らかに小さく");
+  });
+
+  test("無理はさせない旨の応答方針を含む", () => {
+    expect(buildSoftenPrompt({ intensity: "chill" })).toContain("無理はさせない");
+  });
+
+  test.each([
+    { intensity: "chill", keyword: "Chill" },
+    { intensity: "sharp", keyword: "Sharp" },
+  ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
+    expect(buildSoftenPrompt({ intensity })).toContain(keyword);
   });
 });
