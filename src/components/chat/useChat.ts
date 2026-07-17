@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { FALLBACK_REPLY } from "../../server/ai/constants";
-import { postDiscard, postReaction, resolveNudge, type ReactionKind } from "../../server/nudges";
+import {
+  postDiscard,
+  postReaction,
+  postReviveParent,
+  resolveNudge,
+  type ReactionKind,
+} from "../../server/nudges";
 import { postMutter } from "../../server/mutterings";
 import { updateIntensity } from "../../server/profile";
-import { REACTION_LABELS } from "./reactions";
+import { PARENT_SUGGESTION_LABELS, REACTION_LABELS } from "./reactions";
 
 export type ChatRole = "user" | "nudgey";
 
@@ -26,7 +32,14 @@ export type ChatMessageData =
       prophecy: string;
       status: NudgeStatus;
     }
-  | { kind: "housekeeping"; id: string; items: HousekeepingRow[] };
+  | { kind: "housekeeping"; id: string; items: HousekeepingRow[] }
+  | {
+      kind: "parentSuggestion";
+      id: string;
+      parentSeedId: string;
+      parentTask: string;
+      status: NudgeStatus;
+    };
 
 export type Intensity = "chill" | "sharp";
 
@@ -38,6 +51,9 @@ type TimelineRow = {
 
 /** 棚卸しの全行処理後にカードを置き換える締めのメッセージ */
 const HOUSEKEEPING_DONE_REPLY = "じゃあ今回はここまでにするね〜。また気になったら教えてね";
+
+/** 親タスクの再提案で「今はいいや」を選んだ際の静的応答（server fn を呼ばずクライアント完結するため） */
+const PARENT_DECLINED_REPLY = "そっか、また気が向いたら教えてね";
 
 /** タイムライン行（1件 = 1往復）をチャット表示用メッセージに展開する */
 export function toMessages(rows: TimelineRow[]): ChatMessageData[] {
@@ -191,10 +207,24 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
           );
           // alreadyReacted は応答バブルなしでボタン無効化のみ
           if (result.alreadyReacted) return resolved;
-          return [
-            ...resolved,
-            { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: result.reply },
-          ];
+          const replyBubble: ChatMessageData = {
+            kind: "text",
+            id: crypto.randomUUID(),
+            role: "nudgey",
+            text: result.reply,
+          };
+          if (!result.parentSuggestion) {
+            return [...resolved, replyBubble];
+          }
+          // 答え合わせバブルと再提案カードは同一 setMessages 内で atomic に append する
+          const parentCard: ChatMessageData = {
+            kind: "parentSuggestion",
+            id: crypto.randomUUID(),
+            parentSeedId: result.parentSuggestion.parentSeedId,
+            parentTask: result.parentSuggestion.parentTask,
+            status: "idle",
+          };
+          return [...resolved, replyBubble, parentCard];
         });
       } else {
         rollbackReaction(seedId, optimisticId, result.reply);
@@ -276,6 +306,87 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
     );
   }
 
+  /**
+   * 親タスクの再提案カードで「やってみる」を選んだときの処理。react() と同型（in-flight ガード共用・
+   * 楽観バブル・失敗時ロールバック）だが、カードの状態更新・ロールバックは messageId（カードの id）
+   * スコープで行う。parentSeedId は server fn 呼び出しにのみ使い、カードの特定には使わない
+   * （parentSeedId で特定すると、将来カードが複数共存したときに別カードまで誤って再活性しうるため）。
+   */
+  async function reviveParent(messageId: string, parentSeedId: string) {
+    if (reactingSeedId) return;
+    setReactingSeedId(messageId);
+
+    const optimisticId = crypto.randomUUID();
+    setMessages((prev) => [
+      ...prev.map((message) =>
+        message.kind === "parentSuggestion" && message.id === messageId
+          ? { ...message, status: "sending" as const }
+          : message,
+      ),
+      { kind: "text", id: optimisticId, role: "user", text: PARENT_SUGGESTION_LABELS.revive },
+    ]);
+
+    try {
+      const result = await postReviveParent({ data: { parentSeedId } });
+      if (result.ok) {
+        setMessages((prev) => {
+          const resolved = prev.map((message) =>
+            message.kind === "parentSuggestion" && message.id === messageId
+              ? { ...message, status: "resolved" as const }
+              : message,
+          );
+          // alreadyReacted は応答バブルなしでボタン無効化のみ
+          if (result.alreadyReacted) return resolved;
+          return [
+            ...resolved,
+            { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: result.reply },
+          ];
+        });
+      } else {
+        rollbackParentSuggestion(messageId, optimisticId, result.reply);
+      }
+    } catch {
+      rollbackParentSuggestion(messageId, optimisticId, FALLBACK_REPLY);
+    } finally {
+      setReactingSeedId(null);
+    }
+  }
+
+  /** 再提案の失敗時、楽観バブルを取り消してエラー応答を出し、カードは操作可能に戻す */
+  function rollbackParentSuggestion(messageId: string, optimisticId: string, reply: string) {
+    setMessages((prev) => [
+      ...prev
+        .filter((message) => message.id !== optimisticId)
+        .map((message) =>
+          message.kind === "parentSuggestion" && message.id === messageId
+            ? { ...message, status: "idle" as const }
+            : message,
+        ),
+      { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: reply },
+    ]);
+  }
+
+  /**
+   * 親タスクの再提案カードで「今はいいや」を選んだときの処理。棚卸しの keep と同じく server fn は呼ばず
+   * クライアント完結する（設計書 §3.4「自動復帰ではない」。No は親を softened のまま据え置くだけでよい）
+   */
+  function declineParent(messageId: string) {
+    setMessages((prev) => [
+      ...prev.map((message) =>
+        message.kind === "parentSuggestion" && message.id === messageId
+          ? { ...message, status: "resolved" as const }
+          : message,
+      ),
+      {
+        kind: "text",
+        id: crypto.randomUUID(),
+        role: "user",
+        text: PARENT_SUGGESTION_LABELS.decline,
+      },
+      { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: PARENT_DECLINED_REPLY },
+    ]);
+  }
+
   return {
     messages,
     intensity,
@@ -286,5 +397,7 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
     react,
     keep,
     discard,
+    reviveParent,
+    declineParent,
   };
 }

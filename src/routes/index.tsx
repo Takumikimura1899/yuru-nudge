@@ -16,7 +16,18 @@ export const Route = createFileRoute("/")({
 
 function App() {
   const { profile, timeline } = Route.useLoaderData();
-  const { messages, intensity, thinking, send, changeIntensity, react, keep, discard } = useChat({
+  const {
+    messages,
+    intensity,
+    thinking,
+    send,
+    changeIntensity,
+    react,
+    keep,
+    discard,
+    reviveParent,
+    declineParent,
+  } = useChat({
     initialMessages: toMessages(timeline),
     initialIntensity: profile.intensity_level === "sharp" ? "sharp" : ("chill" as Intensity),
   });
@@ -35,6 +46,8 @@ function App() {
           onReact={react}
           onKeep={keep}
           onDiscard={discard}
+          onReviveParent={reviveParent}
+          onDeclineParent={declineParent}
         />
 
         <MutterForm onSend={send} busy={thinking} />

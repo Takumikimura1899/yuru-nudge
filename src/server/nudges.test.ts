@@ -21,10 +21,21 @@ vi.mock("./ai/nudgey", () => ({
   generateMonthlyReview: (...args: unknown[]) => generateMonthlyReviewMock(...args),
 }));
 
-const { isIntervalElapsed, jstMonthRange, resolveNudgeState, reactToNudge, discardSeed } =
-  await import("./nudges");
-const { ARCHIVED_REPLY, HOUSEKEEPING_THRESHOLD, NUDGE_INTERVAL_HOURS, NUDGE_TIMEOUT_DAYS } =
-  await import("./ai/constants");
+const {
+  isIntervalElapsed,
+  jstMonthRange,
+  resolveNudgeState,
+  reactToNudge,
+  discardSeed,
+  reviveParent,
+} = await import("./nudges");
+const {
+  ARCHIVED_REPLY,
+  HOUSEKEEPING_THRESHOLD,
+  NUDGE_INTERVAL_HOURS,
+  NUDGE_TIMEOUT_DAYS,
+  PARENT_REVIVED_REPLY,
+} = await import("./ai/constants");
 
 /** Kysely のチェーンを模した DB モック。終端メソッド以外は自身を返す */
 const createMockDb = () => {
@@ -477,6 +488,84 @@ describe("reactToNudge", () => {
       expect(db.executeTakeFirst).toHaveBeenCalledTimes(1);
     });
 
+    describe("親タスクの再提案（設計書 §3.4）", () => {
+      test("完了した seed に parent_id があり、親が softened なら parentSuggestion を付与する", async () => {
+        const updatedSeed = {
+          id: "seed-1",
+          processed_task: "机の上だけ片付ける",
+          prophecy: "...",
+          parent_id: "parent-1",
+        };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
+          .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+          .mockResolvedValueOnce({ id: "parent-1", processed_task: "部屋を片付ける" }); // 親 SELECT（softened ヒット）
+        generateCompletionReplyMock.mockResolvedValue("やったんだ〜。えらいねぇ");
+
+        const result = await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+          random: () => 1, // 累計ロールに外れる（COUNT を打たない）
+        });
+
+        expect(result).toEqual({
+          ok: true,
+          reply: "やったんだ〜。えらいねぇ",
+          parentSuggestion: { parentSeedId: "parent-1", parentTask: "部屋を片付ける" },
+        });
+        expect(db.selectFrom).toHaveBeenCalledWith("seeds");
+        expect(db.where).toHaveBeenCalledWith("id", "=", "parent-1");
+        expect(db.where).toHaveBeenCalledWith("status", "=", "softened");
+      });
+
+      test("親が softened でない（archived 等）なら SELECT がヒットせず parentSuggestion を付与しない", async () => {
+        const updatedSeed = {
+          id: "seed-1",
+          processed_task: "机の上だけ片付ける",
+          prophecy: "...",
+          parent_id: "parent-1",
+        };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
+          .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+          .mockResolvedValueOnce(undefined); // 親 SELECT（status='softened' 条件でミス）
+        generateCompletionReplyMock.mockResolvedValue("やったんだ〜。えらいねぇ");
+
+        const result = await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+          random: () => 1,
+        });
+
+        expect(result).toEqual({ ok: true, reply: "やったんだ〜。えらいねぇ" });
+      });
+
+      test("parent_id が null なら親 SELECT を打たない", async () => {
+        const updatedSeed = {
+          id: "seed-1",
+          processed_task: "部屋を片付ける",
+          prophecy: "...",
+          parent_id: null,
+        };
+        db.executeTakeFirst
+          .mockResolvedValueOnce(updatedSeed) // 条件付き UPDATE
+          .mockResolvedValueOnce({ intensity_level: "chill" }); // fetchIntensity
+        generateCompletionReplyMock.mockResolvedValue("やったんだ〜。えらいねぇ");
+
+        const result = await reactToNudge(asDb(db), {
+          userId: "test-user",
+          seedId: "seed-1",
+          reaction: "completed",
+          random: () => 1,
+        });
+
+        expect(result).toEqual({ ok: true, reply: "やったんだ〜。えらいねぇ" });
+        expect(db.executeTakeFirst).toHaveBeenCalledTimes(2); // 親 SELECT は呼ばれない
+      });
+    });
+
     describe("累計セリフ織り込み", () => {
       test("ロール当選（random < 0.3）かつ completed 総数が3件以上なら completedCount を渡す（postgres.js の string count を Number cast）", async () => {
         const updatedSeed = { id: "seed-1", processed_task: "部屋を片付ける", prophecy: "..." };
@@ -700,5 +789,44 @@ describe("discardSeed", () => {
     const result = await discardSeed(asDb(db), { userId: "test-user", seedId: "seed-1" });
 
     expect(result).toEqual({ ok: false });
+  });
+});
+
+describe("reviveParent（設計書 §3.4: 親タスクの再提案で「やってみる」）", () => {
+  test("softened の親を pending へ条件付き更新し、intensity に応じた静的応答を返す（LLM は呼ばない）", async () => {
+    const db = createMockDb();
+    db.executeTakeFirst
+      .mockResolvedValueOnce({ id: "parent-1", status: "pending" }) // 条件付き UPDATE
+      .mockResolvedValueOnce({ intensity_level: "sharp" }); // fetchIntensity
+
+    const result = await reviveParent(asDb(db), { userId: "test-user", seedId: "parent-1" });
+
+    expect(result).toEqual({ ok: true, reply: PARENT_REVIVED_REPLY.sharp });
+    expect(db.updateTable).toHaveBeenCalledWith("seeds");
+    expect(db.set).toHaveBeenCalledWith({ status: "pending", updated_at: expect.any(Date) });
+    expect(db.where).toHaveBeenCalledWith("id", "=", "parent-1");
+    expect(db.where).toHaveBeenCalledWith("user_id", "=", "test-user");
+    expect(db.where).toHaveBeenCalledWith("status", "=", "softened");
+  });
+
+  test("intensity=chill なら chill 用の静的応答を返す", async () => {
+    const db = createMockDb();
+    db.executeTakeFirst
+      .mockResolvedValueOnce({ id: "parent-1", status: "pending" })
+      .mockResolvedValueOnce({ intensity_level: "chill" });
+
+    const result = await reviveParent(asDb(db), { userId: "test-user", seedId: "parent-1" });
+
+    expect(result).toEqual({ ok: true, reply: PARENT_REVIVED_REPLY.chill });
+  });
+
+  test("既に softened でない（二重送信・別タブでの先行操作）→ alreadyReacted、intensity は取得しない", async () => {
+    const db = createMockDb();
+    db.executeTakeFirst.mockResolvedValueOnce(undefined); // 条件付き UPDATE が0行
+
+    const result = await reviveParent(asDb(db), { userId: "test-user", seedId: "parent-1" });
+
+    expect(result).toEqual({ ok: true, alreadyReacted: true, reply: "" });
+    expect(db.executeTakeFirst).toHaveBeenCalledTimes(1);
   });
 });

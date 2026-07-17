@@ -7,6 +7,7 @@ import {
   MOOD_LOG_LIMIT,
   NUDGE_INTERVAL_HOURS,
   NUDGE_TIMEOUT_DAYS,
+  PARENT_REVIVED_REPLY,
   TALLY_MENTION_MIN_COUNT,
   TALLY_MENTION_PROBABILITY,
 } from "./ai/constants";
@@ -298,8 +299,10 @@ async function generateNewNudge(
 
 export type ReactionKind = "completed" | "softened" | "archived";
 
+export type ParentSuggestion = { parentSeedId: string; parentTask: string };
+
 export type ReactionResult =
-  | { ok: true; reply: string; alreadyReacted?: boolean }
+  | { ok: true; reply: string; alreadyReacted?: boolean; parentSuggestion?: ParentSuggestion }
   | { ok: false; reply: string };
 
 /**
@@ -350,8 +353,34 @@ async function reactCompleted(
     intensity,
     completedCount,
   });
+  const parentSuggestion = await maybeFetchParentSuggestion(db, args.userId, updated.parent_id);
 
-  return { ok: true, reply };
+  return { ok: true, reply, ...(parentSuggestion ? { parentSuggestion } : {}) };
+}
+
+/**
+ * 完了した seed に親（softened で再提案待ち）がいれば、再提案カードに使う材料を返す（設計書 §3.4）。
+ * `status='softened'` 条件の SELECT でヒットしたときのみ返すため、親が既に archived 等になっていれば
+ * 自然に suggestion なしになる（子の完了後に親が別経路で状態遷移していても壊れない）。
+ */
+async function maybeFetchParentSuggestion(
+  db: Kysely<DB>,
+  userId: string,
+  parentId: string | null,
+): Promise<ParentSuggestion | null> {
+  if (!parentId) return null;
+
+  const parent = await db
+    .selectFrom("seeds")
+    .select(["id", "processed_task"])
+    .where("id", "=", parentId)
+    .where("user_id", "=", userId)
+    .where("status", "=", "softened")
+    .executeTakeFirst();
+
+  if (!parent) return null;
+
+  return { parentSeedId: parent.id, parentTask: parent.processed_task };
 }
 
 /**
@@ -474,6 +503,32 @@ export async function discardSeed(
   return updated ? { ok: true } : { ok: false };
 }
 
+/**
+ * 親タスクの再提案カードで「やってみる」が選ばれたとき、親 seed を softened から pending に戻す
+ * （設計書 §3.4）。`status='softened'` 条件付き UPDATE で冪等化し、0行なら既に処理済み（別タブ操作等）
+ * として alreadyReacted を返す。即時ナッジはしない（自動復帰ではない）ため LLM は呼ばず静的応答を返す。
+ */
+export async function reviveParent(
+  db: Kysely<DB>,
+  args: { userId: string; seedId: string },
+): Promise<ReactionResult> {
+  const updated = await db
+    .updateTable("seeds")
+    .set({ status: "pending", updated_at: new Date() })
+    .where("id", "=", args.seedId)
+    .where("user_id", "=", args.userId)
+    .where("status", "=", "softened")
+    .returningAll()
+    .executeTakeFirst();
+
+  if (!updated) {
+    return ALREADY_REACTED;
+  }
+
+  const intensity = await fetchIntensity(db, args.userId);
+  return { ok: true, reply: PARENT_REVIVED_REPLY[intensity === "sharp" ? "sharp" : "chill"] };
+}
+
 /** アプリ起動時のナッジ状態解決（タイムアウト archive を含む） */
 export const resolveNudge = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
@@ -520,6 +575,23 @@ export const postDiscard = createServerFn({ method: "POST" })
     const db = createDb();
     try {
       return await discardSeed(db, { userId: context.userId, seedId: data.seedId });
+    } finally {
+      await db.destroy();
+    }
+  });
+
+export const postReviveParentInput = z.object({
+  parentSeedId: z.string().uuid(),
+});
+
+/** 親タスクの再提案カードで「やってみる」を選んだときに送信する */
+export const postReviveParent = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(postReviveParentInput)
+  .handler(async ({ data, context }) => {
+    const db = createDb();
+    try {
+      return await reviveParent(db, { userId: context.userId, seedId: data.parentSeedId });
     } finally {
       await db.destroy();
     }

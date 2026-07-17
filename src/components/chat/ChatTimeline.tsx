@@ -3,6 +3,7 @@ import type { ReactionKind } from "../../server/nudges";
 import ChatMessage from "./ChatMessage";
 import HousekeepingCard from "./HousekeepingCard";
 import NudgeCard from "./NudgeCard";
+import ParentSuggestionCard from "./ParentSuggestionCard";
 import ThinkingIndicator from "./ThinkingIndicator";
 import type { ChatMessageData } from "./useChat";
 
@@ -12,12 +13,16 @@ export default function ChatTimeline({
   onReact,
   onKeep,
   onDiscard,
+  onReviveParent,
+  onDeclineParent,
 }: {
   messages: ChatMessageData[];
   thinking: boolean;
   onReact: (seedId: string, reaction: ReactionKind) => void;
   onKeep: (seedId: string) => void;
   onDiscard: (seedId: string) => void;
+  onReviveParent: (messageId: string, parentSeedId: string) => void;
+  onDeclineParent: (messageId: string) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +61,16 @@ export default function ChatTimeline({
                 items={message.items}
                 onKeep={onKeep}
                 onDiscard={onDiscard}
+              />
+            );
+          case "parentSuggestion":
+            return (
+              <ParentSuggestionCard
+                key={message.id}
+                parentTask={message.parentTask}
+                status={message.status}
+                onRevive={() => onReviveParent(message.id, message.parentSeedId)}
+                onDecline={() => onDeclineParent(message.id)}
               />
             );
           case "text":

@@ -48,3 +48,12 @@ export const TALLY_MENTION_PROBABILITY = 0.3;
 
 /** 累計セリフを織り込むための completed 総数の下限（少なすぎる件数では言及しない） */
 export const TALLY_MENTION_MIN_COUNT = 3;
+
+/**
+ * 親タスクの再提案で「やってみる」が選ばれた際の静的応答（設計書 §3.4）。
+ * 即時ナッジはしない（自動復帰ではない）ため LLM は呼ばず、pending に戻したことだけを伝える
+ */
+export const PARENT_REVIVED_REPLY = {
+  chill: "じゃあまた気が向いたときに声かけるね",
+  sharp: "了解。またタイミングを見て声をかけるね",
+} as const;
