@@ -110,6 +110,23 @@ describe("起動時の resolveNudge", () => {
     });
     expect(result.current.messages).toEqual([]);
   });
+
+  test("kind:review なら通常のナッジーテキストバブルとして末尾に追加する", async () => {
+    resolveNudgeMock.mockResolvedValue({ kind: "review", reply: "先月の予言、2つ叶ったねぇ" });
+
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]).toMatchObject({
+      kind: "text",
+      role: "nudgey",
+      text: "先月の予言、2つ叶ったねぇ",
+    });
+  });
 });
 
 describe("send（つぶやき送信）", () => {

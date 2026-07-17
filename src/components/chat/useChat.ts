@@ -94,6 +94,11 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
               })),
             },
           ]);
+        } else if (resolution.kind === "review") {
+          setMessages((prev) => [
+            ...prev,
+            { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: resolution.reply },
+          ]);
         }
       } catch (error) {
         console.error("resolveNudge failed", error);

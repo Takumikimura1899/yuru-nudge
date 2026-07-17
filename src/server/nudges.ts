@@ -8,21 +8,27 @@ import {
   NUDGE_INTERVAL_HOURS,
   NUDGE_TIMEOUT_DAYS,
 } from "./ai/constants";
-import { generateCompletionReply, generateSoftenedTask, selectNudge } from "./ai/nudgey";
+import {
+  generateCompletionReply,
+  generateMonthlyReview,
+  generateSoftenedTask,
+  selectNudge,
+} from "./ai/nudgey";
 import { createDb } from "./db";
 import type { DB } from "./db-types";
 import { authMiddleware } from "./middleware/auth";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+const JST_OFFSET_MS = 9 * HOUR_MS;
 
 export type NudgeSeed = { seedId: string; task: string; prophecy: string };
 export type HousekeepingItem = { seedId: string; task: string };
 export type NudgeResolution =
   | { kind: "none" }
   | { kind: "nudge"; seed: NudgeSeed }
-  | { kind: "housekeeping"; items: HousekeepingItem[] };
-// 将来: kind: "review"（Phase 4 月次振り返り拡張点。未実装）
+  | { kind: "housekeeping"; items: HousekeepingItem[] }
+  | { kind: "review"; reply: string };
 
 /** 新規ナッジの提案間隔（12時間）が経過しているか。未提案（null）なら常に経過扱い（設計書 §9.1） */
 export function isIntervalElapsed(lastNudgedAt: Date | null, now: Date): boolean {
@@ -63,11 +69,102 @@ export async function resolveNudgeState(
       items: pending.map((p) => ({ seedId: p.id, task: p.processed_task })),
     };
   }
+
+  const review = await maybeResolveMonthlyReview(db, { userId, now });
+  if (review) {
+    return review;
+  }
+
   if (pending.length === 0) {
     return { kind: "none" };
   }
 
   return await generateNewNudge(db, userId, now, pending);
+}
+
+/** JST基準の月ラベルと、前月/当月の開始UTC時刻を返す純関数（設計書 §9.3 の月次振り返り判定に使用） */
+export function jstMonthRange(now: Date): {
+  currentLabel: string;
+  prevStartUtc: Date;
+  currStartUtc: Date;
+} {
+  const jst = new Date(now.getTime() + JST_OFFSET_MS);
+  const year = jst.getUTCFullYear();
+  const month = jst.getUTCMonth();
+  const currentLabel = `${year}-${String(month + 1).padStart(2, "0")}`;
+
+  return {
+    currentLabel,
+    prevStartUtc: new Date(Date.UTC(year, month - 1, 1) - JST_OFFSET_MS),
+    currStartUtc: new Date(Date.UTC(year, month, 1) - JST_OFFSET_MS),
+  };
+}
+
+/**
+ * 月次振り返り（設計書 §9.3 からの逸脱: 「当月分」ではなく「前月分」の completed seeds を引用する。
+ * 月初表示時点では当月の completed が必ず空になる矛盾を避けるための判断。詳細は
+ * docs/implementation-notes.md 参照）。
+ * claim-then-generate で冪等化する: LLM 呼び出し前に last_review_month を条件付き UPDATE で確保し、
+ * 0行（並行 resolve が先行して既に claim 済み）なら null を返す。
+ */
+async function maybeResolveMonthlyReview(
+  db: Kysely<DB>,
+  args: { userId: string; now: Date },
+): Promise<NudgeResolution | null> {
+  const { userId, now } = args;
+  const { currentLabel, prevStartUtc, currStartUtc } = jstMonthRange(now);
+
+  const profile = await db
+    .selectFrom("profiles")
+    .select("last_review_month")
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+
+  if (profile?.last_review_month === currentLabel) {
+    return null;
+  }
+
+  const completed = await db
+    .selectFrom("seeds")
+    .select(["processed_task", "prophecy"])
+    .where("user_id", "=", userId)
+    .where("status", "=", "completed")
+    .where("updated_at", ">=", prevStartUtc)
+    .where("updated_at", "<", currStartUtc)
+    .orderBy("updated_at", "asc")
+    .execute();
+
+  // LLM 呼び出しに使う intensity は claim（書き込み）の前に取得する。claim 後に throw しうる
+  // 処理を置くと、claim だけ成功して振り返りが失われるケースが生まれるため
+  const intensity = await fetchIntensity(db, userId);
+
+  // 単調ガード: `!=` ではなく `<` にする。'YYYY-MM' はゼロ埋め固定長で辞書順=時系列順（DB check制約で保証）。
+  // 月境界のストラグラーが未来ラベルで claim した後に、正規タイミングのリクエストがラベルを
+  // 巻き戻す ABA を防ぐ
+  const claimed = await db
+    .updateTable("profiles")
+    .set({ last_review_month: currentLabel })
+    .where("user_id", "=", userId)
+    .where((eb) =>
+      eb.or([eb("last_review_month", "is", null), eb("last_review_month", "<", currentLabel)]),
+    )
+    .returningAll()
+    .executeTakeFirst();
+
+  if (!claimed) {
+    return null;
+  }
+
+  if (completed.length === 0) {
+    return null;
+  }
+
+  const reply = await generateMonthlyReview({
+    completed: completed.map((c) => ({ task: c.processed_task, prophecy: c.prophecy ?? "" })),
+    intensity,
+  });
+
+  return { kind: "review", reply };
 }
 
 /**

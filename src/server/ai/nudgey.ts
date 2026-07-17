@@ -1,14 +1,21 @@
 import { google } from "@ai-sdk/google";
 import { generateText, Output } from "ai";
-import { COMPLETION_FALLBACK_REPLY, FALLBACK_REPLY, NUDGEY_MODEL } from "./constants";
+import {
+  COMPLETION_FALLBACK_REPLY,
+  FALLBACK_REPLY,
+  NUDGEY_MODEL,
+  REVIEW_FALLBACK_REPLY,
+} from "./constants";
 import {
   buildCompletionPrompt,
+  buildMonthlyReviewPrompt,
   buildNudgeSelectPrompt,
   buildPrompt,
   buildSoftenPrompt,
 } from "./prompt";
 import {
   completionReplySchema,
+  monthlyReviewSchema,
   nudgeSelectSchema,
   nudgeyResponseSchema,
   softenedTaskSchema,
@@ -128,5 +135,38 @@ export async function generateSoftenedTask(args: {
   } catch (error) {
     console.error("generateSoftenedTask failed", error);
     return { ok: false, reply: FALLBACK_REPLY };
+  }
+}
+
+/** プロンプトに列挙する完了タスクの上限件数（件数自体は全数をプロンプトに明記する） */
+const MONTHLY_REVIEW_PROMPT_CAP = 10;
+
+/**
+ * 月次振り返りのセリフを生成する（設計書 §9.3, §10.2）。
+ * 失敗時は throw せず、件数入りの静的フォールバックを返す。
+ */
+export async function generateMonthlyReview(args: {
+  completed: { task: string; prophecy: string }[];
+  intensity: string;
+}): Promise<string> {
+  try {
+    const lines = args.completed
+      .slice(0, MONTHLY_REVIEW_PROMPT_CAP)
+      .map((c) => `- ${c.task}${c.prophecy ? `（予言: ${c.prophecy}）` : ""}`)
+      .join("\n");
+
+    const { output } = await generateText({
+      model: google(NUDGEY_MODEL),
+      output: Output.object({ schema: monthlyReviewSchema }),
+      system: buildMonthlyReviewPrompt({ intensity: args.intensity }),
+      prompt: `先月完了したタスク（全${args.completed.length}件）:\n${lines}`,
+    });
+
+    return output.reply;
+  } catch (error) {
+    console.error("generateMonthlyReview failed", error);
+    return REVIEW_FALLBACK_REPLY[args.intensity === "sharp" ? "sharp" : "chill"](
+      args.completed.length,
+    );
   }
 }

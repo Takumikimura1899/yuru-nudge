@@ -23,6 +23,7 @@ export interface Mutterings {
 export interface Profiles {
   created_at: Generated<Timestamp>;
   intensity_level: Generated<string>;
+  last_review_month: string | null;
   user_id: string;
 }
 

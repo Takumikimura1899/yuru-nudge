@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vite-plus/test";
 import {
   buildCompletionPrompt,
+  buildMonthlyReviewPrompt,
   buildNudgeSelectPrompt,
   buildPrompt,
   buildSoftenPrompt,
@@ -118,5 +119,29 @@ describe("buildSoftenPrompt", () => {
     { intensity: "sharp", keyword: "Sharp" },
   ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
     expect(buildSoftenPrompt({ intensity })).toContain(keyword);
+  });
+});
+
+describe("buildMonthlyReviewPrompt", () => {
+  test("入力形式（完了したタスク）の説明を含む", () => {
+    const prompt = buildMonthlyReviewPrompt({ intensity: "chill" });
+    expect(prompt).toContain("完了したタスク");
+  });
+
+  test("先月について語り、今月の催促はしない旨の応答方針を含む", () => {
+    const prompt = buildMonthlyReviewPrompt({ intensity: "chill" });
+    expect(prompt).toContain("先月について語る");
+    expect(prompt).toContain("催促はしない");
+  });
+
+  test("NGトーン（禁止事項）を含む", () => {
+    expect(buildMonthlyReviewPrompt({ intensity: "chill" })).toContain("禁止事項");
+  });
+
+  test.each([
+    { intensity: "chill", keyword: "Chill" },
+    { intensity: "sharp", keyword: "Sharp" },
+  ])("intensity=$intensity のトーン（$keyword）を含む", ({ intensity, keyword }) => {
+    expect(buildMonthlyReviewPrompt({ intensity })).toContain(keyword);
   });
 });

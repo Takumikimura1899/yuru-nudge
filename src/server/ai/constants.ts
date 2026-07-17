@@ -36,3 +36,9 @@ export const COMPLETION_FALLBACK_REPLY = {
   chill: "やったんだ〜。えらいねぇ",
   sharp: "いいね、お疲れさま",
 } as const;
+
+/** 月次振り返りの LLM 失敗時フォールバック（件数入り。設計書 §9.3, §10.2 のトーンを踏襲） */
+export const REVIEW_FALLBACK_REPLY = {
+  chill: (count: number) => `先月は${count}個も終わらせてたんだねぇ。えらいねぇ`,
+  sharp: (count: number) => `先月の完了は${count}件。いいペースだったね`,
+} as const;

@@ -12,9 +12,15 @@ vi.mock("@ai-sdk/google", () => ({
   google: (model: string) => ({ modelId: model }),
 }));
 
-const { classifyAndReply, selectNudge, generateCompletionReply, generateSoftenedTask } =
-  await import("./nudgey");
-const { FALLBACK_REPLY, COMPLETION_FALLBACK_REPLY } = await import("./constants");
+const {
+  classifyAndReply,
+  selectNudge,
+  generateCompletionReply,
+  generateSoftenedTask,
+  generateMonthlyReview,
+} = await import("./nudgey");
+const { FALLBACK_REPLY, COMPLETION_FALLBACK_REPLY, REVIEW_FALLBACK_REPLY } =
+  await import("./constants");
 
 // selectNudge / generateSoftenedTask は失敗時に console.error でログするため、テスト出力を汚さない
 vi.spyOn(console, "error").mockImplementation(() => {});
@@ -229,5 +235,79 @@ describe("generateSoftenedTask", () => {
 
     const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string };
     expect(args.prompt).toContain("部屋を片付ける");
+  });
+});
+
+describe("generateMonthlyReview", () => {
+  beforeEach(() => {
+    generateTextMock.mockReset();
+  });
+
+  test("LLM の reply をそのまま返す", async () => {
+    generateTextMock.mockResolvedValue({ output: { reply: "先月の予言、2つ叶ったねぇ" } });
+
+    const result = await generateMonthlyReview({
+      completed: [{ task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" }],
+      intensity: "chill",
+    });
+
+    expect(result).toBe("先月の予言、2つ叶ったねぇ");
+  });
+
+  test.each([
+    { intensity: "chill", expected: REVIEW_FALLBACK_REPLY.chill(2) },
+    { intensity: "sharp", expected: REVIEW_FALLBACK_REPLY.sharp(2) },
+  ])(
+    "LLM 呼び出しが失敗したら intensity=$intensity の件数入り静的フォールバックを返し、console.error を呼ぶ（throw しない）",
+    async ({ intensity, expected }) => {
+      const consoleErrorSpy = vi.spyOn(console, "error").mockClear();
+      generateTextMock.mockRejectedValue(new Error("rate limited"));
+
+      const result = await generateMonthlyReview({
+        completed: [
+          { task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+          { task: "本を読む", prophecy: "" },
+        ],
+        intensity,
+      });
+
+      expect(result).toBe(expected);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "generateMonthlyReview failed",
+        expect.any(Error),
+      );
+    },
+  );
+
+  test("完了タスクを列挙形式でプロンプトに含め、全件数を明記する", async () => {
+    generateTextMock.mockResolvedValue({ output: { reply: "..." } });
+
+    await generateMonthlyReview({
+      completed: [
+        { task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+        { task: "本を読む", prophecy: "" },
+      ],
+      intensity: "sharp",
+    });
+
+    const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string; system: string };
+    expect(args.prompt).toContain("全2件");
+    expect(args.prompt).toContain("部屋を片付ける");
+    expect(args.prompt).toContain("片付いた部屋、気持ちいいかも");
+    expect(args.prompt).toContain("本を読む");
+    expect(args.system).toContain("Sharp");
+  });
+
+  test("先頭10件を超える完了タスクはプロンプトへの列挙を10件までにcapする（件数自体は全数を明記）", async () => {
+    generateTextMock.mockResolvedValue({ output: { reply: "..." } });
+    const completed = Array.from({ length: 12 }, (_, i) => ({ task: `task-${i}`, prophecy: "" }));
+
+    await generateMonthlyReview({ completed, intensity: "chill" });
+
+    const args = generateTextMock.mock.calls[0]?.[0] as { prompt: string };
+    expect(args.prompt).toContain("全12件");
+    expect(args.prompt).toContain("task-9");
+    expect(args.prompt).not.toContain("task-10");
+    expect(args.prompt).not.toContain("task-11");
   });
 });

@@ -43,3 +43,10 @@ export const softenedTaskSchema = z.object({
 });
 
 export type SoftenedTaskResult = z.infer<typeof softenedTaskSchema>;
+
+/** 月次振り返りの構造化出力 */
+export const monthlyReviewSchema = z.object({
+  reply: z.string().min(1).describe("先月の振り返りセリフ（1〜2文）。今月の催促はしない"),
+});
+
+export type MonthlyReviewResult = z.infer<typeof monthlyReviewSchema>;

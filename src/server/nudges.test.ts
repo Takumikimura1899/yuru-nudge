@@ -13,13 +13,15 @@ vi.mock("./env", () => ({
 const selectNudgeMock = vi.fn();
 const generateCompletionReplyMock = vi.fn();
 const generateSoftenedTaskMock = vi.fn();
+const generateMonthlyReviewMock = vi.fn();
 vi.mock("./ai/nudgey", () => ({
   selectNudge: (...args: unknown[]) => selectNudgeMock(...args),
   generateCompletionReply: (...args: unknown[]) => generateCompletionReplyMock(...args),
   generateSoftenedTask: (...args: unknown[]) => generateSoftenedTaskMock(...args),
+  generateMonthlyReview: (...args: unknown[]) => generateMonthlyReviewMock(...args),
 }));
 
-const { isIntervalElapsed, resolveNudgeState, reactToNudge, discardSeed } =
+const { isIntervalElapsed, jstMonthRange, resolveNudgeState, reactToNudge, discardSeed } =
   await import("./nudges");
 const { ARCHIVED_REPLY, HOUSEKEEPING_THRESHOLD, NUDGE_INTERVAL_HOURS, NUDGE_TIMEOUT_DAYS } =
   await import("./ai/constants");
@@ -58,6 +60,8 @@ const asDb = (db: MockDb) => db as unknown as Kysely<DB>;
 const NOW = new Date("2026-07-18T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+/** NOW（JST 2026-07-18 21:00）が属する月ラベル。「表示済み月」を装うテストのモック値に使う */
+const CURRENT_LABEL = jstMonthRange(NOW).currentLabel;
 
 const createPendingSeed = (overrides = {}) => ({
   id: "seed-1",
@@ -88,6 +92,30 @@ describe("isIntervalElapsed", () => {
   });
 });
 
+describe("jstMonthRange", () => {
+  test("JST基準で月末16:00Z（=翌月1日01:00 JST）を跨ぐと当月ラベルが翌月になる", () => {
+    const result = jstMonthRange(new Date("2026-07-31T16:00:00Z"));
+    expect(result.currentLabel).toBe("2026-08");
+  });
+
+  test("境界の直前（14:59:59Z、JST 7/31 23:59:59）はまだ当月ラベルのまま", () => {
+    const result = jstMonthRange(new Date("2026-07-31T14:59:59Z"));
+    expect(result.currentLabel).toBe("2026-07");
+  });
+
+  test("currStartUtc は当月1日0時JSTのUTC時刻、prevStartUtc は前月1日0時JSTのUTC時刻", () => {
+    const result = jstMonthRange(new Date("2026-07-31T16:00:00Z"));
+    expect(result.currStartUtc).toEqual(new Date("2026-07-31T15:00:00Z"));
+    expect(result.prevStartUtc).toEqual(new Date("2026-06-30T15:00:00Z"));
+  });
+
+  test("年またぎ（1月）でも前月ラベル・開始時刻を正しく計算する", () => {
+    const result = jstMonthRange(new Date("2026-01-15T00:00:00Z"));
+    expect(result.currentLabel).toBe("2026-01");
+    expect(result.prevStartUtc).toEqual(new Date("2025-11-30T15:00:00Z"));
+  });
+});
+
 describe("resolveNudgeState", () => {
   let db: MockDb;
 
@@ -96,6 +124,7 @@ describe("resolveNudgeState", () => {
     selectNudgeMock.mockReset();
     generateCompletionReplyMock.mockReset();
     generateSoftenedTaskMock.mockReset();
+    generateMonthlyReviewMock.mockReset();
   });
 
   test("タイムアウトした nudged を条件付き UPDATE で一括 archive する（status 再チェックで TOCTOU を回避）", async () => {
@@ -104,7 +133,8 @@ describe("resolveNudgeState", () => {
       .mockResolvedValueOnce([]); // fetchPendingSeeds
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined) // pickNudgedSeed
-      .mockResolvedValueOnce(undefined); // fetchLastNudgedAt（未提案 → 経過扱い）
+      .mockResolvedValueOnce(undefined) // fetchLastNudgedAt（未提案 → 経過扱い）
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }); // maybeResolveMonthlyReview: 表示済みとしてskip
 
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
@@ -166,6 +196,8 @@ describe("resolveNudgeState", () => {
     });
     expect(db.executeTakeFirst).toHaveBeenCalledTimes(2); // generateNewNudge の fetchIntensity には到達していない
     expect(selectNudgeMock).not.toHaveBeenCalled();
+    // 棚卸しはナッジ枠を先取りするため、月次振り返りの判定（profile SELECT 含む）にも到達しない
+    expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
   });
 
   test("間隔が未経過なら pending が閾値以上でも棚卸しを表示しない（棚卸しもナッジ枠を使う扱いのため）", async () => {
@@ -179,6 +211,8 @@ describe("resolveNudgeState", () => {
     expect(result).toEqual({ kind: "none" });
     // fetchPendingSeeds（棚卸し判定）に到達していない
     expect(db.execute).toHaveBeenCalledTimes(1);
+    // 12時間ゲート未経過なら月次振り返りの判定にも到達しない
+    expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
   });
 
   test("pending が0件なら none", async () => {
@@ -187,7 +221,8 @@ describe("resolveNudgeState", () => {
       .mockResolvedValueOnce([]); // fetchPendingSeeds
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined) // pickNudgedSeed
-      .mockResolvedValueOnce(undefined); // fetchLastNudgedAt
+      .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }); // maybeResolveMonthlyReview: 表示済みとしてskip
 
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
@@ -216,6 +251,7 @@ describe("resolveNudgeState", () => {
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined) // pickNudgedSeed
       .mockResolvedValueOnce(undefined) // fetchLastNudgedAt（未提案）
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }) // maybeResolveMonthlyReview: 表示済みとしてskip
       .mockResolvedValueOnce({ intensity_level: "sharp" }) // fetchIntensity
       .mockResolvedValueOnce({
         id: "seed-1",
@@ -257,13 +293,14 @@ describe("resolveNudgeState", () => {
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }) // maybeResolveMonthlyReview: 表示済みとしてskip
       .mockResolvedValueOnce({ intensity_level: "chill" });
     selectNudgeMock.mockResolvedValue({ ok: false });
 
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
     expect(result).toEqual({ kind: "none" });
-    expect(db.executeTakeFirst).toHaveBeenCalledTimes(3); // 最終 UPDATE は呼ばれない
+    expect(db.executeTakeFirst).toHaveBeenCalledTimes(4); // 最終 UPDATE は呼ばれない
   });
 
   test("選択後の条件付き UPDATE が0件（競合で既に処理済み）なら none", async () => {
@@ -274,6 +311,7 @@ describe("resolveNudgeState", () => {
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }) // maybeResolveMonthlyReview: 表示済みとしてskip
       .mockResolvedValueOnce({ intensity_level: "chill" })
       .mockResolvedValueOnce(undefined); // 最終 UPDATE が0件
     selectNudgeMock.mockResolvedValue({ ok: true, seedId: "seed-1", prophecy: "..." });
@@ -281,6 +319,109 @@ describe("resolveNudgeState", () => {
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
     expect(result).toEqual({ kind: "none" });
+  });
+
+  describe("月次振り返り", () => {
+    test("表示済み月（last_review_month === currentLabel）は SELECT のみで、前月分の抽出や claim は行わない", async () => {
+      db.execute
+        .mockResolvedValueOnce(undefined) // archive UPDATE
+        .mockResolvedValueOnce([]); // fetchPendingSeeds
+      db.executeTakeFirst
+        .mockResolvedValueOnce(undefined) // pickNudgedSeed
+        .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+        .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }); // profile: 表示済み
+
+      const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
+
+      expect(result).toEqual({ kind: "none" });
+      expect(db.execute).toHaveBeenCalledTimes(2); // 前月 completed の抽出（3回目の execute）は呼ばれない
+      expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
+    });
+
+    test("pending が0件でも前月 completed があれば claim に成功して review を返す（棚卸し判定の後・pending 0 チェックの前に判定するため）", async () => {
+      const completedRows = [
+        { processed_task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+        { processed_task: "本を読む", prophecy: null },
+      ];
+      db.execute
+        .mockResolvedValueOnce(undefined) // archive UPDATE
+        .mockResolvedValueOnce([]) // fetchPendingSeeds（0件）
+        .mockResolvedValueOnce(completedRows); // 前月 completed の抽出
+      db.executeTakeFirst
+        .mockResolvedValueOnce(undefined) // pickNudgedSeed
+        .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+        .mockResolvedValueOnce({ last_review_month: null }) // profile: 未振り返り
+        .mockResolvedValueOnce({ intensity_level: "sharp" }) // fetchIntensity（claimより前）
+        .mockResolvedValueOnce({ user_id: "test-user", last_review_month: CURRENT_LABEL }); // claim成功
+      generateMonthlyReviewMock.mockResolvedValue("先月の予言、2つ叶ったねぇ");
+
+      const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
+
+      expect(result).toEqual({ kind: "review", reply: "先月の予言、2つ叶ったねぇ" });
+      expect(db.set).toHaveBeenCalledWith({ last_review_month: CURRENT_LABEL });
+      expect(generateMonthlyReviewMock).toHaveBeenCalledWith({
+        completed: [
+          { task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+          { task: "本を読む", prophecy: "" },
+        ],
+        intensity: "sharp",
+      });
+    });
+
+    test("claim（条件付き UPDATE）が0行（並行 resolve が先行して既に claim 済み）なら review なし", async () => {
+      db.execute
+        .mockResolvedValueOnce(undefined) // archive UPDATE
+        .mockResolvedValueOnce([]) // fetchPendingSeeds
+        .mockResolvedValueOnce([{ processed_task: "部屋を片付ける", prophecy: "..." }]); // 前月 completed あり
+      db.executeTakeFirst
+        .mockResolvedValueOnce(undefined) // pickNudgedSeed
+        .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+        .mockResolvedValueOnce({ last_review_month: null }) // profile: 未振り返り
+        .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+        .mockResolvedValueOnce(undefined); // claim UPDATE が0行
+
+      const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
+
+      expect(result).toEqual({ kind: "none" });
+      expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
+    });
+
+    test("last_review_month が currentLabel より未来ラベルのとき claim 0行（単調性回帰: `!=` ではなく `<` ガードで守る）", async () => {
+      db.execute
+        .mockResolvedValueOnce(undefined) // archive UPDATE
+        .mockResolvedValueOnce([]) // fetchPendingSeeds
+        .mockResolvedValueOnce([{ processed_task: "部屋を片付ける", prophecy: "..." }]); // 前月 completed あり
+      db.executeTakeFirst
+        .mockResolvedValueOnce(undefined) // pickNudgedSeed
+        .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+        .mockResolvedValueOnce({ last_review_month: "2026-08" }) // 未来ラベル（月境界のストラグラーが先行 claim 済み）
+        .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+        .mockResolvedValueOnce(undefined); // claim UPDATE: 実DBなら `<` ガードで0行（`!=` だと誤って通ってしまう）
+
+      const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
+
+      expect(result).toEqual({ kind: "none" });
+      expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
+    });
+
+    test("前月 completed が0件なら claim だけして review なし（同月中は再チェックされない）", async () => {
+      db.execute
+        .mockResolvedValueOnce(undefined) // archive UPDATE
+        .mockResolvedValueOnce([]) // fetchPendingSeeds
+        .mockResolvedValueOnce([]); // 前月 completed 0件
+      db.executeTakeFirst
+        .mockResolvedValueOnce(undefined) // pickNudgedSeed
+        .mockResolvedValueOnce(undefined) // fetchLastNudgedAt
+        .mockResolvedValueOnce({ last_review_month: null }) // profile: 未振り返り
+        .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+        .mockResolvedValueOnce({ user_id: "test-user", last_review_month: CURRENT_LABEL }); // claim成功
+
+      const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
+
+      expect(result).toEqual({ kind: "none" });
+      expect(db.set).toHaveBeenCalledWith({ last_review_month: CURRENT_LABEL });
+      expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
+    });
   });
 });
 
