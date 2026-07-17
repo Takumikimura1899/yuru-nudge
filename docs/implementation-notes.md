@@ -79,6 +79,36 @@
 
 ---
 
+## Phase 3（ナッジ機能）
+
+### 採用した判断
+
+- **棚卸しも 12 時間ゲートの内側**（設計書 §9.1）。`resolveNudgeState` の順序は ① タイムアウト一括 archive → ② nudged 再表示 → ③ 12 時間未経過なら kind:none → ④ 経過していれば pending≥15 で棚卸し、未満で新規ナッジ生成。棚卸しは `nudged_at` を更新しないため、間隔経過後は seed が 15 件未満に減るまで毎起動で表示される（MVP の許容仕様）。
+- **ナッジの一意性を仮定しない設計**。並行 `resolveNudge` で nudged が 2 件以上になる理論的余地（READ COMMITTED では条件付き UPDATE の NOT EXISTS 相当チェックがすり抜ける）があるため、再表示は `ORDER BY nudged_at DESC, id ASC LIMIT 1` で決定的に 1 件選ぶ重複耐性方式。余った nudged は 7 日タイムアウト（NUDGE_TIMEOUT_DAYS）で自己回復。恒久対策（`seeds(user_id) WHERE status='nudged'` の部分ユニークインデックス）は多ユーザー化時に追加。
+- **状態遷移は全て条件付き UPDATE + 行数確認で冪等化**。`WHERE id=? AND user_id=? AND status='nudged'`（等）でチェックし、`returningAll()` で 0 行なら `alreadyReacted` 扱い。`discardSeed` も 0 行更新なら `ok:false` を返し UI が行を復元。「難しい」（softened）のみ LLM 先行 → 成功時にトランザクションで親 UPDATE + 子 seed INSERT、親が 0 行ならロールバック（orphan の子を作らない）。タイムアウト archive は SELECT せず単一の条件付き UPDATE で、並行する完了反応を上書きしない。
+- **`updated_at` は全 UPDATE で明示 set**。`init.sql` に ON UPDATE トリガーがないため、`updated_at: new Date()` で毎回明示している。
+- **反応トリガーはボタンのみ**（やったよ/難しい/いらない）。つぶやき文からの完了検出は「どのナッジ宛か」の曖昧性と LLM 誤分類リスクで見送り。将来 `classifyAndReply` に active nudge の文脈を渡す拡張点だけ残した。ラベル文言は `src/components/chat/reactions.ts` に単一ソース化。
+- **反応後のナッジー応答（答え合わせ等）はライブ表示のみで DB 保存しない**（設計書 §11.2「ナッジへの反応も履歴に含む」からの意図的な簡略化。リロードで消える。履歴再構成が必要になったら `seeds.reaction_reply` カラム追加 + タイムラインの時刻マージで対応する将来案）。このため **Phase 3 は DB マイグレーション不要**（既存 seeds カラムで完結）。
+- **LLM は 3 関数追加**。`selectNudge`（pending 候補から 1 つ選択、未来予言を生成）/ `generateCompletionReply`（完了時の答え合わせ）/ `generateSoftenedTask`（難しい時の緩和版生成）いずれも `generateText` + `Output.object` で構造化出力。`selectNudge` は返ってきた seed_id が候補集合に含まれるか事後検証し、外れていれば ok:false（ハルシネーション対策。その起動はナッジなし、次回再試行）。新規 LLM 関数は fallback 前に必ず `console.error` でログ（既存 `classifyAndReply` の握り潰しと異なる点）。
+- **`resolveNudge` は loader ではなくクライアント mount 時の POST server fn**。loader に載せると SSR 描画のたびに副作用（archive・LLM 呼び出し）が走り、SSR-direct 呼び出しは auth middleware を bypass する経路になるため。`useRef` の単発ガード（`nudgeResolvedRef`）で StrictMode の二重 mount でも 1 回だけ呼ぶ。初回描画後にナッジカードが後から出る（1 往復分）のは許容コスト。
+
+### ハマりどころ
+
+- **useChat の失敗時巻き戻しが「末尾要素削除」（`slice(0,-1)`）前提だったのが Phase 3 で破綻**。`react()` / `resolveNudge()` / `discard()` が同じ messages 配列に非同期 append するため、`postMutter` の in-flight 中に反応ボタンが押されると別のバブルを誤削除する。楽観バブルに `optimisticId` を持たせて `filter` で除去する方式に変更（Phase 3 レビューで検出）。`useChat.ts` の `send()` は `optimisticId` 付きでメッセージを push し、失敗時に `pushNudgeyErrorInsteadOfUserMessage()` で filter で該当 id を除去。
+- **lint-staged（pre-commit）は部分ステージング + 未追跡ファイル混在で stash に失敗する**（「Entry not uptodate. Cannot merge」）。Phase 3 のように `src/server/nudges.ts` / `src/server/ai/nudgey.ts`（新規）等ファイルが多い場合は全ステージングの単一コミットが安全。
+
+### 実機検証結果（2026-07-18）
+
+- **mount 時に resolveNudge の POST が 1 回だけ発火**（StrictMode 下でも `nudgeResolvedRef` ガードが機能）。
+- **seed なし → kind:"none"** で通常チャット画面。
+- **ナッジ表示 → 「やったよ」ボタン** で nudged→completed 遷移・答え合わせ応答表示・ボタン disable を確認。
+- **pending 15 件以上でリロード → 棚卸しカード表示**。「もういいや」で pending→archived・DB 更新、「気になってる」はサーバー呼び出しなしで行が消え DB は pending 維持。全行処理後に締めメッセージ（`HOUSEKEEPING_DONE_REPLY`）へ置き換わることを確認。
+- **「難しい」反応 → LLM で緩和版タスク生成** → 親を softened に、子（緩和版）を pending で插入。親が既に completed の場合は ALREADY_REACTED で fail over（失敗時 UI は行を復元可能）。
+- **テスト: 12 ファイル / 128 件全緑**（`bun run test`）、`bun run check` 通過。
+- **設計書 §9.4 の「タイムアウト archive」も動作確認**。nudged のまま 7 日放置 → リロード時に自動 archive（ナッジカード消滅）。
+
+---
+
 ## ローカル環境の起動 / DB ドライバ周り
 
 ### `bun run dev` は Supabase を自動起動する
