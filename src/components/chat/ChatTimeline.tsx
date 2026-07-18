@@ -33,9 +33,6 @@ export default function ChatTimeline({
   if (messages.length === 0 && !thinking) {
     return (
       <div className="flex min-h-64 flex-col items-center justify-center gap-2 text-[var(--sea-ink-soft)]">
-        <span aria-hidden className="text-4xl">
-          🐑
-        </span>
         <p className="text-sm">ナッジーは牧草地でのんびりしてるよ</p>
       </div>
     );

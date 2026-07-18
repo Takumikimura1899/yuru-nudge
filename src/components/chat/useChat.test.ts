@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, test, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
 import { FALLBACK_REPLY } from "../../server/ai/constants";
 import type { ChatMessageData } from "./useChat";
 
@@ -542,5 +542,135 @@ describe("親タスクの再提案（reviveParent / declineParent）", () => {
     expect(messages.find((m) => m.kind === "text" && m.role === "nudgey")).toMatchObject({
       text: "そっか、また気が向いたら教えてね",
     });
+  });
+});
+
+describe("celebrating（羊の喜び演出）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("初期値は false", () => {
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    expect(result.current.celebrating).toBe(false);
+  });
+
+  test("reaction:completed が成功（alreadyReactedでない）すると true になり、2500ms 後に false へ戻る", async () => {
+    postReactionMock.mockResolvedValue({ ok: true, reply: "いいね、お疲れさま" });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [createNudgeMessage()], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.react("seed-1", "completed");
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2499);
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(result.current.celebrating).toBe(false);
+  });
+
+  test.each([{ reaction: "softened" as const }, { reaction: "archived" as const }])(
+    "reaction:$reaction では celebrating を発火しない（完了以外では喜ばない）",
+    async ({ reaction }) => {
+      postReactionMock.mockResolvedValue({ ok: true, reply: "うんうん" });
+      const { result } = renderHook(() =>
+        useChat({ initialMessages: [createNudgeMessage()], initialIntensity: "chill" }),
+      );
+
+      await act(async () => {
+        await result.current.react("seed-1", reaction);
+      });
+
+      expect(result.current.celebrating).toBe(false);
+    },
+  );
+
+  test("alreadyReacted のときは celebrating を発火しない（新規完了ではないため）", async () => {
+    postReactionMock.mockResolvedValue({ ok: true, alreadyReacted: true, reply: "" });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [createNudgeMessage()], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.react("seed-1", "completed");
+    });
+
+    expect(result.current.celebrating).toBe(false);
+  });
+
+  test("連続完了時はタイマーがリセットされる（debounce-reset。最後のトリガーから2500ms保つ）", async () => {
+    postReactionMock.mockResolvedValue({ ok: true, reply: "いいね" });
+    const secondNudge = createNudgeMessage({ id: "seed-2", seedId: "seed-2" });
+    const { result } = renderHook(() =>
+      useChat({
+        initialMessages: [createNudgeMessage(), secondNudge],
+        initialIntensity: "chill",
+      }),
+    );
+
+    await act(async () => {
+      await result.current.react("seed-1", "completed");
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    // 最初のトリガーから2000ms（2500ms未満なのでまだ true のはず）
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    // ここで2回目の完了がタイマーをリセットする
+    await act(async () => {
+      await result.current.react("seed-2", "completed");
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    // 2回目のトリガーから2000ms経過。リセットされていれば残り500msあるのでまだ true
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(result.current.celebrating).toBe(true);
+
+    // 2回目のトリガーから2500ms経過。ここで false に戻る
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(result.current.celebrating).toBe(false);
+  });
+
+  test("unmount 時にタイマーを解除する（unmount後にタイマーを進めても例外や警告なし）", async () => {
+    postReactionMock.mockResolvedValue({ ok: true, reply: "いいね" });
+    const { result, unmount } = renderHook(() =>
+      useChat({ initialMessages: [createNudgeMessage()], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.react("seed-1", "completed");
+    });
+
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    unmount();
+
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(2500);
+      });
+    }).not.toThrow();
   });
 });
