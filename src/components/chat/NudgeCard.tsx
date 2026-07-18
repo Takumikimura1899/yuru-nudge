@@ -1,5 +1,5 @@
-import { motion } from "motion/react";
 import type { ReactionKind } from "../../server/nudges";
+import ChatCard from "./ChatCard";
 import { REACTIONS } from "./reactions";
 import type { NudgeStatus } from "./useChat";
 
@@ -15,33 +15,20 @@ export default function NudgeCard({
   const disabled = status !== "idle";
 
   return (
-    <motion.li
-      initial={{ opacity: 0, y: 12, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 26, mass: 0.7 }}
-      className="flex items-end gap-2 justify-start"
-    >
-      <span aria-hidden className="mb-1 text-xl">
-        🐑
-      </span>
-      <div className="flex max-w-[75%] flex-col gap-2">
-        <p className="rounded-3xl rounded-bl-md border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-2.5 text-sm leading-relaxed text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)]">
-          {prophecy}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {REACTIONS.map((reaction) => (
-            <button
-              key={reaction.value}
-              type="button"
-              disabled={disabled}
-              onClick={() => onReact(reaction.value)}
-              className="rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--sea-ink)] transition hover:-translate-y-0.5 hover:border-[var(--lagoon-deep)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-            >
-              {reaction.label}
-            </button>
-          ))}
-        </div>
+    <ChatCard bubble={prophecy}>
+      <div className="flex flex-wrap gap-2">
+        {REACTIONS.map((reaction) => (
+          <button
+            key={reaction.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onReact(reaction.value)}
+            className="rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-xs font-semibold text-[var(--sea-ink)] transition hover:-translate-y-0.5 hover:border-[var(--lagoon-deep)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+          >
+            {reaction.label}
+          </button>
+        ))}
       </div>
-    </motion.li>
+    </ChatCard>
   );
 }

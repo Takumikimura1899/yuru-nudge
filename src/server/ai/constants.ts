@@ -22,8 +22,14 @@ export const NUDGE_TIMEOUT_DAYS = 7;
 /** この件数以上 pending seed が溜まったら、通常ナッジの代わりに棚卸しを優先する（設計書 §5.2） */
 export const HOUSEKEEPING_THRESHOLD = 15;
 
-/** seedの保持上限（暫定）。一時超過は許容する（設計書 §5.1, §5.3） */
-export const SEED_LIMIT = 20;
+/**
+ * DB由来の intensity_level（string）を "chill" | "sharp" の2値へ正規化する。
+ * 未知の値や null 相当の入力は chill 扱い（設計書の既定トーン）。
+ * 上記の intensity キー付き静的応答オブジェクトのインデックスや、羊の表情判定などに使う。
+ */
+export function normalizeIntensity(intensity: string): "chill" | "sharp" {
+  return intensity === "sharp" ? "sharp" : "chill";
+}
 
 /** 「いらない」反応時の静的応答（設計書 §8.4 の「断り」を踏襲。ゆるく受容し、責めない） */
 export const ARCHIVED_REPLY = {

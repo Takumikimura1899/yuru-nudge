@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import ChatTimeline from "../components/chat/ChatTimeline";
 import IntensityToggle from "../components/chat/IntensityToggle";
 import MutterForm from "../components/chat/MutterForm";
-import { toMessages, useChat, type Intensity } from "../components/chat/useChat";
+import { toMessages, useChat } from "../components/chat/useChat";
 import NudgeySheep, { type NudgeyMood } from "../components/NudgeySheep";
+import { normalizeIntensity } from "../server/ai/constants";
 import { getTimeline } from "../server/mutterings";
 import { getProfile } from "../server/profile";
 
@@ -31,10 +32,10 @@ function App() {
     declineParent,
   } = useChat({
     initialMessages: toMessages(timeline),
-    initialIntensity: profile.intensity_level === "sharp" ? "sharp" : ("chill" as Intensity),
+    initialIntensity: normalizeIntensity(profile.intensity_level),
   });
 
-  const mood: NudgeyMood = celebrating ? "happy" : intensity === "sharp" ? "sharp" : "chill";
+  const mood: NudgeyMood = celebrating ? "happy" : normalizeIntensity(intensity);
 
   return (
     <>

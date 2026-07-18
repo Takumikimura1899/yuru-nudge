@@ -139,9 +139,18 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
         }
       } catch (error) {
         console.error("resolveNudge failed", error);
+        appendNudgeyError(FALLBACK_REPLY);
       }
     })();
   }, []);
+
+  /** 楽観表示していたユーザーバブルがない失敗（起動時解決・棚卸し破棄等）で、ナッジーのキャラ内エラーだけを末尾に追加する */
+  function appendNudgeyError(text: string) {
+    setMessages((prev) => [
+      ...prev,
+      { kind: "text", id: crypto.randomUUID(), role: "nudgey", text },
+    ]);
+  }
 
   async function send(content: string): Promise<boolean> {
     if (thinking) return false;
@@ -289,11 +298,13 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
       if (result.ok) {
         removeHousekeepingRow(seedId);
       } else {
-        // 競合で対象が既に pending でなかった等。行は消さず操作可能な状態に戻す
+        // 競合で対象が既に pending でなかった等。行は消さず操作可能な状態に戻し、キャラ内エラーで説明する
         setHousekeepingRowStatus(seedId, "idle");
+        appendNudgeyError(FALLBACK_REPLY);
       }
     } catch {
       setHousekeepingRowStatus(seedId, "idle");
+      appendNudgeyError(FALLBACK_REPLY);
     }
   }
 

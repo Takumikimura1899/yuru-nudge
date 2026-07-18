@@ -142,6 +142,27 @@ describe("起動時の resolveNudge", () => {
       text: "先月の予言、2つ叶ったねぇ",
     });
   });
+
+  test("失敗（例外）: console.error でログしつつ、ナッジーのキャラ内エラーバブルを末尾に追加する", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    resolveNudgeMock.mockRejectedValue(new Error("network error"));
+
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+    });
+    expect(result.current.messages[0]).toMatchObject({
+      kind: "text",
+      role: "nudgey",
+      text: FALLBACK_REPLY,
+    });
+    expect(consoleErrorSpy).toHaveBeenCalledWith("resolveNudge failed", expect.any(Error));
+
+    consoleErrorSpy.mockRestore();
+  });
 });
 
 describe("send（つぶやき送信）", () => {
@@ -344,7 +365,7 @@ describe("棚卸し（keep / discard）", () => {
     });
   });
 
-  test("discard が通信例外で失敗したら該当行の status を idle に戻す", async () => {
+  test("discard が通信例外で失敗したら該当行の status を idle に戻し、キャラ内エラーバブルを追加する", async () => {
     postDiscardMock.mockRejectedValue(new Error("network error"));
     const items: HousekeepingMessage["items"] = [
       { seedId: "seed-1", task: "部屋を片付ける", status: "idle" },
@@ -359,9 +380,14 @@ describe("棚卸し（keep / discard）", () => {
 
     const housekeeping = result.current.messages.find((m) => m.kind === "housekeeping");
     expect(housekeeping).toMatchObject({ items: [{ seedId: "seed-1", status: "idle" }] });
+    expect(
+      result.current.messages.find((m) => m.kind === "text" && m.role === "nudgey"),
+    ).toMatchObject({
+      text: FALLBACK_REPLY,
+    });
   });
 
-  test("discard が ok:false（競合で対象が既に pending でない）を返したら行を消さず status を idle に戻す", async () => {
+  test("discard が ok:false（競合で対象が既に pending でない）を返したら行を消さず status を idle に戻し、キャラ内エラーバブルを追加する", async () => {
     postDiscardMock.mockResolvedValue({ ok: false });
     const items: HousekeepingMessage["items"] = [
       { seedId: "seed-1", task: "部屋を片付ける", status: "idle" },
@@ -376,6 +402,11 @@ describe("棚卸し（keep / discard）", () => {
 
     const housekeeping = result.current.messages.find((m) => m.kind === "housekeeping");
     expect(housekeeping).toMatchObject({ items: [{ seedId: "seed-1", status: "idle" }] });
+    expect(
+      result.current.messages.find((m) => m.kind === "text" && m.role === "nudgey"),
+    ).toMatchObject({
+      text: FALLBACK_REPLY,
+    });
   });
 });
 

@@ -5,6 +5,7 @@ import {
   ARCHIVED_REPLY,
   HOUSEKEEPING_THRESHOLD,
   MOOD_LOG_LIMIT,
+  normalizeIntensity,
   NUDGE_INTERVAL_HOURS,
   NUDGE_TIMEOUT_DAYS,
   PARENT_REVIVED_REPLY,
@@ -127,19 +128,21 @@ async function maybeResolveMonthlyReview(
     return null;
   }
 
-  const completed = await db
-    .selectFrom("seeds")
-    .select(["processed_task", "prophecy"])
-    .where("user_id", "=", userId)
-    .where("status", "=", "completed")
-    .where("updated_at", ">=", prevStartUtc)
-    .where("updated_at", "<", currStartUtc)
-    .orderBy("updated_at", "asc")
-    .execute();
-
-  // LLM 呼び出しに使う intensity は claim（書き込み）の前に取得する。claim 後に throw しうる
-  // 処理を置くと、claim だけ成功して振り返りが失われるケースが生まれるため
-  const intensity = await fetchIntensity(db, userId);
+  // 前月 completed の抽出と LLM 用 intensity の取得は互いに独立なので並列化する。
+  // どちらも claim（書き込み）より前に実行する: claim 後に throw しうる処理を置くと、
+  // claim だけ成功して振り返りが失われるケースが生まれるため
+  const [completed, intensity] = await Promise.all([
+    db
+      .selectFrom("seeds")
+      .select(["processed_task", "prophecy"])
+      .where("user_id", "=", userId)
+      .where("status", "=", "completed")
+      .where("updated_at", ">=", prevStartUtc)
+      .where("updated_at", "<", currStartUtc)
+      .orderBy("updated_at", "asc")
+      .execute(),
+    fetchIntensity(db, userId),
+  ]);
 
   // 単調ガード: `!=` ではなく `<` にする。'YYYY-MM' はゼロ埋め固定長で辞書順=時系列順（DB check制約で保証）。
   // 月境界のストラグラーが未来ラベルで claim した後に、正規タイミングのリクエストがラベルを
@@ -262,7 +265,7 @@ async function generateNewNudge(
   pending: { id: string; processed_task: string }[],
 ): Promise<NudgeResolution> {
   // 呼び出し元で pending.length < HOUSEKEEPING_THRESHOLD を保証済みのため
-  // SEED_LIMIT（20件）による絞り込みは不要（常に閾値未満件数しか渡ってこない）
+  // 件数上限による絞り込みは不要（常に閾値未満件数しか渡ってこない）
   const candidates = pending.map((p) => ({ seedId: p.id, task: p.processed_task }));
 
   const [intensity, moods] = await Promise.all([
@@ -345,15 +348,19 @@ async function reactCompleted(
     return ALREADY_REACTED;
   }
 
-  const intensity = await fetchIntensity(db, args.userId);
-  const completedCount = await maybeFetchCompletedCount(db, args.userId, random);
+  // fetchIntensity / maybeFetchCompletedCount / maybeFetchParentSuggestion は互いに独立なので並列化する。
+  // generateCompletionReply は intensity と completedCount に依存するためその後に呼ぶ
+  const [intensity, completedCount, parentSuggestion] = await Promise.all([
+    fetchIntensity(db, args.userId),
+    maybeFetchCompletedCount(db, args.userId, random),
+    maybeFetchParentSuggestion(db, args.userId, updated.parent_id),
+  ]);
   const reply = await generateCompletionReply({
     task: updated.processed_task,
     prophecy: updated.prophecy,
     intensity,
     completedCount,
   });
-  const parentSuggestion = await maybeFetchParentSuggestion(db, args.userId, updated.parent_id);
 
   return { ok: true, reply, ...(parentSuggestion ? { parentSuggestion } : {}) };
 }
@@ -426,7 +433,7 @@ async function reactArchived(
   }
 
   const intensity = await fetchIntensity(db, args.userId);
-  return { ok: true, reply: ARCHIVED_REPLY[intensity === "sharp" ? "sharp" : "chill"] };
+  return { ok: true, reply: ARCHIVED_REPLY[normalizeIntensity(intensity)] };
 }
 
 async function reactSoftened(
@@ -526,7 +533,7 @@ export async function reviveParent(
   }
 
   const intensity = await fetchIntensity(db, args.userId);
-  return { ok: true, reply: PARENT_REVIVED_REPLY[intensity === "sharp" ? "sharp" : "chill"] };
+  return { ok: true, reply: PARENT_REVIVED_REPLY[normalizeIntensity(intensity)] };
 }
 
 /** アプリ起動時のナッジ状態解決（タイムアウト archive を含む） */

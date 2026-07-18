@@ -3,6 +3,7 @@ import { generateText, Output } from "ai";
 import {
   COMPLETION_FALLBACK_REPLY,
   FALLBACK_REPLY,
+  normalizeIntensity,
   NUDGEY_MODEL,
   REVIEW_FALLBACK_REPLY,
 } from "./constants";
@@ -113,7 +114,7 @@ export async function generateCompletionReply(args: {
     return output.reply;
   } catch (error) {
     console.error("generateCompletionReply failed", error);
-    return COMPLETION_FALLBACK_REPLY[args.intensity === "sharp" ? "sharp" : "chill"];
+    return COMPLETION_FALLBACK_REPLY[normalizeIntensity(args.intensity)];
   }
 }
 
@@ -171,8 +172,6 @@ export async function generateMonthlyReview(args: {
     return output.reply;
   } catch (error) {
     console.error("generateMonthlyReview failed", error);
-    return REVIEW_FALLBACK_REPLY[args.intensity === "sharp" ? "sharp" : "chill"](
-      args.completed.length,
-    );
+    return REVIEW_FALLBACK_REPLY[normalizeIntensity(args.intensity)](args.completed.length);
   }
 }
