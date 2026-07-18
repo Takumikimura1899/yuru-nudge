@@ -1,4 +1,5 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router";
+import { MotionConfig } from "motion/react";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
 
@@ -39,7 +40,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
         <Header />
-        {children}
+        <MotionConfig reducedMotion="user">{children}</MotionConfig>
         <Footer />
         <Scripts />
       </body>

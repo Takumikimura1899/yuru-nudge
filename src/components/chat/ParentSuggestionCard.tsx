@@ -1,3 +1,4 @@
+import { motion } from "motion/react";
 import { PARENT_SUGGESTION_ACTIONS, type ParentSuggestionAction } from "./reactions";
 import type { NudgeStatus } from "./useChat";
 
@@ -19,7 +20,12 @@ export default function ParentSuggestionCard({
   };
 
   return (
-    <li className="rise-in flex items-end gap-2 justify-start">
+    <motion.li
+      initial={{ opacity: 0, y: 12, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 26, mass: 0.7 }}
+      className="flex items-end gap-2 justify-start"
+    >
       <span aria-hidden className="mb-1 text-xl">
         🐑
       </span>
@@ -41,6 +47,6 @@ export default function ParentSuggestionCard({
           ))}
         </div>
       </div>
-    </li>
+    </motion.li>
   );
 }
