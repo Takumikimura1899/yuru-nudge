@@ -25,7 +25,7 @@ export const HOUSEKEEPING_THRESHOLD = 15;
 /**
  * DB由来の intensity_level（string）を "chill" | "sharp" の2値へ正規化する。
  * 未知の値や null 相当の入力は chill 扱い（設計書の既定トーン）。
- * 上記の intensity キー付き静的応答オブジェクトのインデックスや、羊の表情判定などに使う。
+ * 下記の intensity キー付き静的応答オブジェクトのインデックスや、羊の表情判定などに使う。
  */
 export function normalizeIntensity(intensity: string): "chill" | "sharp" {
   return intensity === "sharp" ? "sharp" : "chill";
