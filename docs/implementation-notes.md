@@ -131,7 +131,9 @@
 
 - **月次振り返りの server ロジックはローカル Supabase に対する検証スクリプトで4ケース確認済み**: ① 未振り返り・completed 0件で claim して none、② 同月内再訪問は SELECT のみ、③ 未来ラベルからの単調ガード（claim 0行で巻き戻らない）、④ 前月 completed ありで実 LLM 呼び出しによる review 生成。
 - **テスト: 14 ファイル 192 件全緑**（`bun run test`）、`bun run check` 通過、`bun run build`（Workers）通過。
-- **ブラウザでの実機フロー検証（親子再提案カード操作・羊の状態切替とアニメーション・reduced-motion 動作）は未実施**。実施したら本節を更新すること。
+- **ブラウザ実機フロー検証済み（Playwright、ローカル Supabase + 実 LLM）**: ① 月次振り返りバブル表示（前月 completed 2件から prophecy を踏まえた実 LLM 応答）→ リロードで再表示されない（claim 冪等）、② nudged 子の再表示 → 「やったよ」→ 答え合わせ応答 + **累計セリフ織り込み**（確率ロール当選を実機で観測）→ 親再提案カード表示 → 「やってみる」で親 softened→pending（DB 確認）、③ 復帰した親が次回リロードで新規ナッジとして LLM 選択される一巡、④ intensity トグルで羊のメガネ着脱（スクリーンショット確認）、⑤ 完了時の celebrating: MutationObserver で happy-face 出現 → メガネが AnimatePresence で約200msかけて退場 → 約2.5秒（CELEBRATION_MS どおり）で復帰を DOM ログで確認。
+- **反応失敗時のロールバック経路も実機で観測**（検証データの UUID が RFC 4122 非準拠で zod に拒否された事故を利用）: 楽観バブルが除去され、キャラ内エラー応答が表示され、ナッジカードが idle に復帰した。なお `z.string().uuid()` は variant ビットまで検証するため、手作りテストデータの UUID は `gen_random_uuid()` か正しい v4 形式を使うこと。
+- **reduced-motion はブラウザ実機では未検証**（MotionConfig reducedMotion="user" + CSS media query の宣言的対応のみ。OS 設定での動作確認は今後）。
 
 ---
 
