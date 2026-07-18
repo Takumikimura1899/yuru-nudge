@@ -109,6 +109,32 @@
 
 ---
 
+## Phase 4（振り返りと演出）
+
+### 採用した判断
+
+- **月次振り返りは「前月分」の completed seeds を引用**。設計書 §9.3 は「当月分」だが、月初表示では当月がほぼ空になる矛盾があり、ユーザー決定で前月分に変更（設計書からの意図的な逸脱）。
+- **claim-then-generate 方式**: `profiles.last_review_month` ('YYYY-MM') を LLM 呼び出し前に条件付き UPDATE で claim。WHERE は `IS NULL OR last_review_month < currentLabel` の**単調ガード**（`!=` だと月境界のストラグラーリクエストがラベルを巻き戻す ABA 反例がある。'YYYY-MM' はゼロ埋め固定長で辞書順=時系列順、check 制約で保証）。fetchIntensity は claim より前に取得（claim 後に throw しうる処理を排除）。
+- **review 分岐は 12 時間ゲートの内側**。順序は ① 棚卸し → ② 月次振り返り → ③ pending 0 チェック → ④ 新規ナッジ。review は `nudged_at` を更新しない。nudged 再表示が残っている限り review は出ない（再表示優先）。
+- **振り返りは直前月のみ・スキップ月は永久に対象外**。未起動期間や棚卸し優先で月をまたぐと、claim が最新月ラベルへ一気に進むため間の月は振り返られない。ゆるいアプリの思想上許容。
+- **claim 後のプロセス断で当月分の振り返りが飛ぶ at-most-once を許容**。LLM 失敗はフォールバック文が返るので表示される。exactly-once 化は MVP に過剰。
+- **月判定は JST 固定**。UTC+9 オフセット計算のみ、ライブラリ不要。`jstMonthRange()` 純関数。
+- **累計セリフ**: サーバー側で確率ロール（`TALLY_MENTION_PROBABILITY=0.3`）→ 当たったときだけ completed 総数 COUNT → `TALLY_MENTION_MIN_COUNT=3` 件以上なら `generateCompletionReply()` に渡す。`random` は `now` と同じ流儀でテスト用に注入可能。
+- **親子再提案**: 子 completed 時に親が softened ならカード表示。「やってみる」は `postReviveParent()`（softened→pending の条件付き UPDATE、静的応答、即時ナッジなし）。**「今はいいや」はクライアント完結**（server fn 呼ばず DB 不変）。UI のカード状態更新は messageId スコープ・server 呼び出しは parentSeedId（parentSeedId スコープだと消費済みカード再活性の恐れ）。別タブ経由の ABA（古いカードから新しい softened エピソードへの revive）は合法遷移の範囲で無害（余剰 pending は棚卸しで自己回復）。
+- **SVG 羊（NudgeySheep）**: 単一 SVG + 条件付き `<g>` で3状態（chill / sharp=メガネ / happy=笑い目+頬）。fill は既存 CSS 変数でテーマ追従。**固定 div は island-shell の外（main の兄弟）に配置**（island-shell の backdrop-filter が position:fixed の containing block を確立し、section 内に置くと真の固定にならないため）。
+- **celebrating は debounce-reset 方式**: completed 成功時のみ発火（archived/softened/alreadyReacted では発火しない）、トリガ冒頭で clearTimeout → 再セット 2500ms。連続完了で早期打ち切りされない。
+- **アニメーションは motion パッケージ**（framer-motion の現行名。import は `motion/react`。motion@12）。カード3種（Nudge/Housekeeping/ParentSuggestion）の登場は motion.li の spring、羊は motion.g + variants + AnimatePresence（メガネ fade+drop、happy 小ジャンプ）。**テキストバブルと island-shell は既存 CSS .rise-in のまま**（SSR 初期描画は CSS が確実、という棲み分け）。motion は src/server/ 配下に import しない（Workers SSR ビルド対策）。
+- **reduced-motion は2層対応**: `__root.tsx` の `<MotionConfig reducedMotion="user">` + styles.css の `@media (prefers-reduced-motion: reduce) { .rise-in { animation: none; } }`。ChatTimeline の scrollIntoView も reduce 時は "auto"。
+- **反応後のナッジー応答は引き続き DB 非保存**（Phase 3 の方針踏襲。月次振り返り・親子再提案カード・累計セリフもリロードで消える）。
+
+### 検証結果（2026-07-18）
+
+- **月次振り返りの server ロジックはローカル Supabase に対する検証スクリプトで4ケース確認済み**: ① 未振り返り・completed 0件で claim して none、② 同月内再訪問は SELECT のみ、③ 未来ラベルからの単調ガード（claim 0行で巻き戻らない）、④ 前月 completed ありで実 LLM 呼び出しによる review 生成。
+- **テスト: 14 ファイル 192 件全緑**（`bun run test`）、`bun run check` 通過、`bun run build`（Workers）通過。
+- **ブラウザでの実機フロー検証（親子再提案カード操作・羊の状態切替とアニメーション・reduced-motion 動作）は未実施**。実施したら本節を更新すること。
+
+---
+
 ## ローカル環境の起動 / DB ドライバ周り
 
 ### `bun run dev` は Supabase を自動起動する
