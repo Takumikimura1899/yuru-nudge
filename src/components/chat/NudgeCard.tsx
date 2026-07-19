@@ -1,4 +1,5 @@
 import type { ReactionKind } from "../../server/nudges";
+import type { NudgeyMood } from "../NudgeySheep";
 import ChatCard from "./ChatCard";
 import { REACTIONS } from "./reactions";
 import type { NudgeStatus } from "./useChat";
@@ -6,16 +7,18 @@ import type { NudgeStatus } from "./useChat";
 export default function NudgeCard({
   prophecy,
   status,
+  mood,
   onReact,
 }: {
   prophecy: string;
   status: NudgeStatus;
+  mood: NudgeyMood;
   onReact: (reaction: ReactionKind) => void;
 }) {
   const disabled = status !== "idle";
 
   return (
-    <ChatCard bubble={prophecy}>
+    <ChatCard bubble={prophecy} mood={mood}>
       <div className="flex flex-wrap gap-2">
         {REACTIONS.map((reaction) => (
           <button

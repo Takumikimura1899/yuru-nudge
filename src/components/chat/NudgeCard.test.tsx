@@ -9,6 +9,7 @@ import type { NudgeStatus } from "./useChat";
 const createDefaultProps = (overrides: Partial<{ status: NudgeStatus }> = {}) => ({
   prophecy: "片付いた部屋、気持ちいいかも",
   status: "idle" as NudgeStatus,
+  mood: "chill" as const,
   onReact: vi.fn(),
   ...overrides,
 });

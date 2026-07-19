@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ReactionKind } from "../../server/nudges";
+import type { NudgeyMood } from "../NudgeySheep";
 import ChatMessage from "./ChatMessage";
 import HousekeepingCard from "./HousekeepingCard";
 import NudgeCard from "./NudgeCard";
@@ -10,6 +11,7 @@ import type { ChatMessageData } from "./useChat";
 export default function ChatTimeline({
   messages,
   thinking,
+  mood,
   onReact,
   onKeep,
   onDiscard,
@@ -18,6 +20,7 @@ export default function ChatTimeline({
 }: {
   messages: ChatMessageData[];
   thinking: boolean;
+  mood: NudgeyMood;
   onReact: (seedId: string, reaction: ReactionKind) => void;
   onKeep: (seedId: string) => void;
   onDiscard: (seedId: string) => void;
@@ -52,6 +55,7 @@ export default function ChatTimeline({
                 key={message.id}
                 prophecy={message.prophecy}
                 status={message.status}
+                mood={mood}
                 onReact={(reaction) => onReact(message.seedId, reaction)}
               />
             );
@@ -60,6 +64,7 @@ export default function ChatTimeline({
               <HousekeepingCard
                 key={message.id}
                 items={message.items}
+                mood={mood}
                 onKeep={onKeep}
                 onDiscard={onDiscard}
               />
@@ -70,15 +75,18 @@ export default function ChatTimeline({
                 key={message.id}
                 parentTask={message.parentTask}
                 status={message.status}
+                mood={mood}
                 onRevive={() => onReviveParent(message.id, message.parentSeedId)}
                 onDecline={() => onDeclineParent(message.id)}
               />
             );
           case "text":
-            return <ChatMessage key={message.id} role={message.role} text={message.text} />;
+            return (
+              <ChatMessage key={message.id} role={message.role} text={message.text} mood={mood} />
+            );
         }
       })}
-      {thinking && <ThinkingIndicator />}
+      {thinking && <ThinkingIndicator mood={mood} />}
       <div ref={bottomRef} aria-hidden />
     </ul>
   );

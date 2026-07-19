@@ -1,11 +1,20 @@
+import type { NudgeyMood } from "../NudgeySheep";
 import { NUDGEY_BUBBLE_CLASS, NudgeyAvatar } from "./ChatCard";
 import type { ChatRole } from "./useChat";
 
-export default function ChatMessage({ role, text }: { role: ChatRole; text: string }) {
+export default function ChatMessage({
+  role,
+  text,
+  mood,
+}: {
+  role: ChatRole;
+  text: string;
+  mood: NudgeyMood;
+}) {
   const isUser = role === "user";
   return (
     <li className={`rise-in flex items-end gap-2 ${isUser ? "justify-end" : "justify-start"}`}>
-      {!isUser && <NudgeyAvatar />}
+      {!isUser && <NudgeyAvatar mood={mood} />}
       <p
         className={
           isUser
