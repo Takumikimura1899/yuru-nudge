@@ -31,22 +31,35 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     (async () => {
+      let cache;
       try {
-        const cache = await caches.open(CACHE_NAME);
+        cache = await caches.open(CACHE_NAME);
         const cached = await cache.match(request);
         if (cached) return cached;
+      } catch (error) {
+        // キャッシュ層の障害時は cache 未取得のまま素通し（SW なしと同じ挙動に縮退）
+        console.warn("[sw] cache read failed", error);
+      }
 
-        const res = await fetch(request);
+      // try の外に置き、fetch 失敗はそのまま伝播させる（オフライン時に catch で
+      // 再 fetch すると二重フェッチになるため）
+      const res = await fetch(request);
+
+      if (cache) {
         const contentType = res.headers.get("content-type") || "";
         if (res.ok && !res.redirected && !contentType.includes("text/html")) {
           // 書き込み失敗（クォータ超過等）で成功済みレスポンスの返却を巻き込まない
-          event.waitUntil(cache.put(request, res.clone()).catch(() => {}));
+          const putPromise = cache.put(request, res.clone()).catch(() => {});
+          try {
+            event.waitUntil(putPromise);
+          } catch {
+            // 一部ブラウザ（旧 iOS Safari / WebView）は await 後の waitUntil 呼び出しで
+            // InvalidStateError を投げる。取得済みレスポンスの返却を妨げないよう握りつぶす
+          }
         }
-        return res;
-      } catch {
-        // キャッシュ層の障害時は素通し（SW なしと同じ挙動に縮退）
-        return fetch(request);
       }
+
+      return res;
     })(),
   );
 });
