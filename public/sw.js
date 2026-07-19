@@ -30,16 +30,23 @@ self.addEventListener("fetch", (event) => {
   if (!url.pathname.startsWith("/assets/")) return;
 
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(request);
-      if (cached) return cached;
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        const cached = await cache.match(request);
+        if (cached) return cached;
 
-      const res = await fetch(request);
-      const contentType = res.headers.get("content-type") || "";
-      if (res.ok && !res.redirected && !contentType.includes("text/html")) {
-        await cache.put(request, res.clone());
+        const res = await fetch(request);
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && !res.redirected && !contentType.includes("text/html")) {
+          // 書き込み失敗（クォータ超過等）で成功済みレスポンスの返却を巻き込まない
+          event.waitUntil(cache.put(request, res.clone()).catch(() => {}));
+        }
+        return res;
+      } catch {
+        // キャッシュ層の障害時は素通し（SW なしと同じ挙動に縮退）
+        return fetch(request);
       }
-      return res;
-    }),
+    })(),
   );
 });

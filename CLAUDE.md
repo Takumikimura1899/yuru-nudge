@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Toolchain**: Vite+（Vite, Vitest, Oxlint, Oxfmt を統合管理）
 - **Styling**: Tailwind CSS (Rounded, Pastel tone)
 - **Animation**: Framer Motion
-- **PWA**: PWA化のタイミングで別途検討（初期はPWA化しない）
+- **PWA**: フェーズ5で軽量PWA化済み（manifest + アイコン + 静的アセットキャッシュのみのSW。詳細は docs/pwa.md）
 - **Database**: Supabase (PostgreSQL)、Server Function経由のみ（クライアント直接アクセス不可、RLS不要）
 - **DB Migration**: Supabase CLI
 - **DB Client**: Kysely（タイプセーフなSQLクエリビルダー）
