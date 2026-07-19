@@ -42,7 +42,8 @@ export async function classifyAndReply(args: {
       prompt: args.content,
     });
     return { ok: true, data: output };
-  } catch {
+  } catch (error) {
+    console.error("classifyAndReply failed", error);
     return { ok: false, reply: FALLBACK_REPLY };
   }
 }
