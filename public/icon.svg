@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="ナッジー">
+  <!-- 牧草地 -->
+  <g>
+    <ellipse cx="60" cy="104" rx="54" ry="9" fill="#e7f0e8" />
+    <g stroke="#2f6a4a" stroke-width="2" stroke-linecap="round" fill="none">
+      <path d="M20 103 q2 -8 4 0" />
+      <path d="M36 105 q2 -8 4 0" />
+      <path d="M60 106 q2 -8 4 0" />
+      <path d="M84 105 q2 -8 4 0" />
+      <path d="M99 103 q2 -8 4 0" />
+    </g>
+  </g>
+
+  <g>
+    <!-- 脚 -->
+    <g fill="#416166">
+      <rect x="34" y="80" width="8" height="16" rx="4" />
+      <rect x="50" y="84" width="8" height="16" rx="4" />
+      <rect x="64" y="84" width="8" height="16" rx="4" />
+      <rect x="80" y="80" width="8" height="16" rx="4" />
+    </g>
+
+    <!-- 耳 -->
+    <g fill="#ffffff" stroke="#c9d8d4" stroke-width="2">
+      <ellipse cx="26" cy="64" rx="8" ry="13" transform="rotate(-24 26 64)" />
+      <ellipse cx="94" cy="64" rx="8" ry="13" transform="rotate(24 94 64)" />
+    </g>
+
+    <!-- ボディ（もこもこ雲＝円の集合） -->
+    <g fill="#ffffff" stroke="#c9d8d4" stroke-width="2">
+      <ellipse cx="60" cy="58" rx="32" ry="24" />
+      <circle cx="32" cy="50" r="14" />
+      <circle cx="88" cy="50" r="14" />
+      <circle cx="44" cy="32" r="15" />
+      <circle cx="76" cy="32" r="15" />
+      <circle cx="60" cy="27" r="16" />
+    </g>
+
+    <!-- 顔（chill：メガネなし・点目） -->
+    <g>
+      <ellipse cx="60" cy="68" rx="22" ry="17" fill="#f3faf5" stroke="#c9d8d4" stroke-width="2" />
+      <g fill="#173a40">
+        <circle cx="52" cy="68" r="2.8" />
+        <circle cx="68" cy="68" r="2.8" />
+      </g>
+      <path d="M56 78 q4 3 8 0" stroke="#416166" stroke-width="2" stroke-linecap="round" fill="none" />
+    </g>
+  </g>
+</svg>

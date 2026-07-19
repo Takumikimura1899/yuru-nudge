@@ -234,6 +234,8 @@ API_SECRET_KEY が外部に流出した想定：
 - 設定変更はダッシュボード（Workers & Pages → yuru-nudge → Settings → Domains & Routes）または Access API で行う
 - **将来アプリ内に本認証（§7）を入れた時点で、この Access 前段は外す方針**（多人数利用と両立しないため）
 
+> iOS スタンドアロン PWA（ホーム画面追加）で起動した場合、Safari とクッキーコンテナが分離されるため初回起動時は必ずこの Access ログインが走る。OTP の受け取り方を含む運用は [`./pwa.md`](./pwa.md) §4 を参照。
+
 ---
 
 ## 7. 将来の認証導入（MVP 後）

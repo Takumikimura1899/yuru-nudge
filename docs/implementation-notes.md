@@ -9,6 +9,7 @@
 - [`./db-access-pattern.md`](./db-access-pattern.md) — Kysely + per-request DB / マイグレーション
 - [`./auth-flow.md`](./auth-flow.md) — Cookie + Bearer 二経路認証
 - [`./deploy.md`](./deploy.md) — デプロイ手順 / CI/CD 戦略
+- [`./pwa.md`](./pwa.md) — 軽量 PWA 化の運用ノート
 - [`./testing.md`](./testing.md) — テスト方針
 - [`./infra/`](./infra/) — インフラ構成図（draw.io）
 
