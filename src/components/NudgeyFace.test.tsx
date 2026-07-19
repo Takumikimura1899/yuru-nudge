@@ -37,4 +37,14 @@ describe("NudgeyFace", () => {
     expect(svg).toHaveClass("custom-class");
     expect(svg).toHaveClass("block");
   });
+
+  test("decorative のときは aria-hidden になり、role と aria-label を持たない", () => {
+    const { container } = render(<NudgeyFace mood="chill" decorative />);
+
+    const svg = container.querySelector("svg");
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg).not.toHaveAttribute("role");
+    expect(svg).not.toHaveAttribute("aria-label");
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
 });
