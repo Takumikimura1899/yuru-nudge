@@ -17,6 +17,7 @@
     "db:gen": "kysely-codegen --dialect postgres --include-pattern 'public.*' --env-file=.env.local --out-file src/server/db-types.ts",
     "db:reset": "mise exec -- supabase db reset",
     "db:migrate:new": "mise exec -- supabase migration new",
+    "icons": "bun scripts/generate-icons.ts",
     "prepare": "vp config"
   },
   "dependencies": {
@@ -52,6 +53,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^28.1.0",
     "kysely-codegen": "^0.20.0",
+    "sharp": "^0.35.3",
     "typescript": "^5.9.3",
     "vite": "npm:@voidzero-dev/vite-plus-core@latest",
     "vite-plus": "latest",
