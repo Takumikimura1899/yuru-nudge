@@ -217,6 +217,23 @@ API_SECRET_KEY が外部に流出した想定：
 3. 旧シークレットを使う curl / 外部スクリプトは即無効化される
 4. Cloudflare Workers のログで不審なアクセスを確認（`wrangler tail`）
 
+### 6.4 Cloudflare Access による前段保護（フェーズ5〜）
+
+§3.1 のとおり session middleware は**アクセスしてきた全リクエストに API_SECRET_KEY 入り Cookie を配布する**ため、URL に到達した人は誰でも全 Server Function（Gemini 呼び出し含む）を実行できてしまう。`*.workers.dev` はスキャナに発見され得るので、アプリのコード変更ゼロで防御できる **Cloudflare Access** を前段に置いている（2026-07-19 設定、Issue #2）。
+
+| 項目           | 値                                                                               |
+| -------------- | -------------------------------------------------------------------------------- |
+| チームドメイン | `kimura141899.cloudflareaccess.com`                                              |
+| Access アプリ  | `yuru-nudge - Cloudflare Workers`（self_hosted）                                 |
+| 保護対象       | `yuru-nudge.kimura141899.workers.dev` と `*-yuru-nudge.…`（プレビュー URL 含む） |
+| ポリシー       | kimura141899@gmail.com のみ許可（One-time PIN ログイン）                         |
+| セッション期間 | 730h（約 1 ヶ月。iOS スタンドアロン PWA でのログイン画面遷移を減らすため）       |
+
+- リクエストは **Worker がロードされる前に** Access で評価される。未認証は `cloudflareaccess.com` のログイン画面へ 302
+- Worker 側では Access JWT（`Cf-Access-Jwt-Assertion`）の検証はしていない。単一ユーザー MVP であり、Access 突破後も §3 の Cookie/Bearer 検証が第二層として残るため
+- 設定変更はダッシュボード（Workers & Pages → yuru-nudge → Settings → Domains & Routes）または Access API で行う
+- **将来アプリ内に本認証（§7）を入れた時点で、この Access 前段は外す方針**（多人数利用と両立しないため）
+
 ---
 
 ## 7. 将来の認証導入（MVP 後）
@@ -229,6 +246,7 @@ API_SECRET_KEY が外部に流出した想定：
 | ブラウザ側 Cookie の扱い | `session.ts` を撤去し、Supabase Auth の発行する `sb-access-token` Cookie に乗り換える |
 | RLS                      | 必要に応じて DB 側で `(select auth.uid()) = user_id` の RLS ポリシーを追加            |
 | 環境変数                 | `APP_USER_ID`, `API_SECRET_KEY` を撤去、Supabase の anon/service role キーに切り替え  |
+| Cloudflare Access        | 前段保護（§6.4）を撤去。Access アプリを削除し、アプリ内認証に一本化する               |
 
 API レイヤ（`createServerFn().middleware([authMiddleware])`）と DB レイヤ（Kysely）はそのまま使い続けられる。
 
