@@ -17,7 +17,6 @@ export default function SeedPouch() {
   const [open, setOpen] = useState(false);
   const [seeds, setSeeds] = useState<PouchSeed[] | null>(null);
   const [status, setStatus] = useState<PouchStatus>("loading");
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const requestSeqRef = useRef(0);
 
   /**
@@ -60,7 +59,6 @@ export default function SeedPouch() {
     <>
       <button
         type="button"
-        ref={triggerRef}
         onClick={openSheet}
         aria-label={count > 0 ? `タネ袋を開く（${count}個）` : "タネ袋を開く（からっぽ）"}
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] shadow-[0_8px_22px_rgba(30,90,72,0.08)] transition hover:-translate-y-0.5"
@@ -69,10 +67,9 @@ export default function SeedPouch() {
         <span>タネ袋（{count}）</span>
       </button>
 
-      {/* 退場アニメーション完了時点でトリガーへフォーカスを戻す。SeedPouchSheet 側は
-          マウントされている間（退場アニメーション中も含む）ずっとシート内にフォーカスを
-          留めるため、ここで早すぎるタイミングで奪い合わない */}
-      <AnimatePresence onExitComplete={() => triggerRef.current?.focus()}>
+      {/* トリガーへのフォーカス復帰は SeedPouchSheet 側の effect クリーンアップ
+          （実 unmount = 退場アニメーション完了時）が「開いた時点の要素」へ戻す */}
+      <AnimatePresence>
         {open && (
           <SeedPouchSheet seeds={seeds} status={status} onClose={closeSheet} onRetry={fetchPouch} />
         )}

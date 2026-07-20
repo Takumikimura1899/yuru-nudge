@@ -77,6 +77,17 @@ describe("SeedPouchSheet", () => {
     expect(heading).toHaveAttribute("id", headingId);
   });
 
+  test("シート外へフォーカスが逃げても focusin で先頭 focusable（✕）へ引き戻す", () => {
+    render(<SeedPouchSheet {...createDefaultProps()} />);
+    const outside = document.createElement("button");
+    document.body.append(outside);
+
+    outside.focus();
+
+    expect(screen.getByRole("button", { name: "閉じる" })).toHaveFocus();
+    outside.remove();
+  });
+
   test("✕ の装飾絵文字 span は aria-hidden で読み上げツリーから除外される", () => {
     render(<SeedPouchSheet {...createDefaultProps()} />);
 

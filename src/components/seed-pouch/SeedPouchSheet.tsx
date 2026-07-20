@@ -49,9 +49,13 @@ export default function SeedPouchSheet({
   }, []);
 
   // マウント時にシート内の先頭 focusable（✕ボタン）へフォーカスを移し、表示中（退場アニメーション中も
-  // 含む）は Tab/Shift+Tab をシート内で循環させ、Esc で閉じる
+  // 含む）は Tab/Shift+Tab をシート内で循環させ、Esc で閉じる。Tab 以外の経路（スクリーンリーダーの
+  // 仮想カーソル・アドレスバーからの復帰等）でフォーカスが外へ逃げた場合も focusin で引き戻す
   useEffect(() => {
     const panel = panelRef.current;
+    // 開いた時点でフォーカスされていた要素（通常はトリガーボタン）を記録し、クリーンアップで復帰する
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     panel?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
@@ -75,9 +79,21 @@ export default function SeedPouchSheet({
       }
     }
 
+    function handleFocusIn(event: FocusEvent) {
+      if (!panel || panel.contains(event.target as Node)) return;
+      panel.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+    }
+
     document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("focusin", handleFocusIn);
+    // クリーンアップは実 unmount（退場アニメーション完了）時。focusin リスナーを外した後に
+    // 復帰フォーカスを行う順序なので、復帰先を自分で引き戻してしまう競合は構造的に起きない。
+    // 依存の onClose は親で useCallback 済み（不安定だと表示中に effect が再実行され
+    // previouslyFocused の記録が壊れる）
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("focusin", handleFocusIn);
+      previouslyFocused?.focus();
     };
   }, [onClose]);
 
