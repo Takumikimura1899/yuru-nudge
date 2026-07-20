@@ -12,7 +12,11 @@ export const postMutterInput = z.object({
 });
 
 export type PostMutterResult =
-  | { ok: true; muttering: Awaited<ReturnType<typeof insertMuttering>> }
+  | {
+      ok: true;
+      muttering: Awaited<ReturnType<typeof insertMuttering>>;
+      processedTask: string | null;
+    }
   | { ok: false; reply: string };
 
 /**
@@ -80,7 +84,11 @@ export async function processMutter(
     return saved;
   });
 
-  return { ok: true, muttering };
+  return {
+    ok: true,
+    muttering,
+    processedTask: result.data.category === "seed" ? result.data.processed_task : null,
+  };
 }
 
 function insertMuttering(
@@ -103,7 +111,22 @@ function insertMuttering(
 export async function fetchTimeline(db: Kysely<DB>, userId: string) {
   const rows = await db
     .selectFrom("mutterings")
-    .select(["id", "content", "category", "reply", "created_at"])
+    .select((eb) => [
+      "id",
+      "content",
+      "category",
+      "reply",
+      "created_at",
+      // 原本 seed（parent_id が null）の processed_task を返す。leftJoin ではなくスカラサブクエリ
+      // にしているのは、緩和版の子 seed が親と同じ muttering_id を継承するため join だと行が
+      // 重複増殖するのを避けるため（原本に限定すれば高々1行）
+      eb
+        .selectFrom("seeds")
+        .select("processed_task")
+        .whereRef("seeds.muttering_id", "=", "mutterings.id")
+        .where("seeds.parent_id", "is", null)
+        .as("processed_task"),
+    ])
     .where("user_id", "=", userId)
     .orderBy("created_at", "desc")
     .limit(TIMELINE_LIMIT)

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FALLBACK_REPLY } from "../../server/ai/constants";
+import type { NudgeyResponse } from "../../server/ai/schema";
 import {
   postDiscard,
   postReaction,
@@ -13,6 +14,20 @@ import { PARENT_SUGGESTION_LABELS, REACTION_LABELS } from "./reactions";
 
 export type ChatRole = "user" | "nudgey";
 
+export type MutterCategory = NudgeyResponse["category"];
+
+export type ClassificationChip = { category: MutterCategory; task: string | null };
+
+/**
+ * つぶやき分類チップの表示要否を判定する（seed → タネ化・mood → きもち聴取。それ以外は非表示）。
+ * 文言テンプレート自体は ClassificationChip コンポーネント側に集約する。
+ */
+export function buildChip(category: string, task: string | null): ClassificationChip | undefined {
+  if (category === "seed") return { category: "seed", task };
+  if (category === "mood") return { category: "mood", task: null };
+  return undefined;
+}
+
 export type NudgeStatus = "idle" | "sending" | "resolved";
 
 export type HousekeepingRowStatus = "idle" | "discarding";
@@ -24,7 +39,7 @@ export type HousekeepingRow = {
 };
 
 export type ChatMessageData =
-  | { kind: "text"; id: string; role: ChatRole; text: string }
+  | { kind: "text"; id: string; role: ChatRole; text: string; chip?: ClassificationChip }
   | {
       kind: "nudge";
       id: string;
@@ -47,6 +62,8 @@ type TimelineRow = {
   id: string;
   content: string;
   reply: string | null;
+  category: string;
+  processed_task: string | null;
 };
 
 /** 棚卸しの全行処理後にカードを置き換える締めのメッセージ */
@@ -63,7 +80,15 @@ export function toMessages(rows: TimelineRow[]): ChatMessageData[] {
   return rows.flatMap((row) => [
     { kind: "text" as const, id: `${row.id}-user`, role: "user" as const, text: row.content },
     ...(row.reply
-      ? [{ kind: "text" as const, id: row.id, role: "nudgey" as const, text: row.reply }]
+      ? [
+          {
+            kind: "text" as const,
+            id: row.id,
+            role: "nudgey" as const,
+            text: row.reply,
+            chip: buildChip(row.category, row.processed_task),
+          },
+        ]
       : []),
   ]);
 }
@@ -171,6 +196,7 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
             id: result.muttering.id,
             role: "nudgey",
             text: result.muttering.reply ?? "",
+            chip: buildChip(result.muttering.category, result.processedTask),
           },
         ]);
         return true;
