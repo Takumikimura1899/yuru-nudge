@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import SeedPouch from "./seed-pouch/SeedPouch";
 import ThemeToggle from "./ThemeToggle";
 
 export default function Header() {
@@ -16,6 +17,7 @@ export default function Header() {
         </h2>
 
         <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <SeedPouch />
           <ThemeToggle />
         </div>
       </nav>
