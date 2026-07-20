@@ -26,6 +26,14 @@
   --link-bg-hover: rgba(255, 255, 255, 0.9);
   --hero-a: rgba(79, 184, 178, 0.36);
   --hero-b: rgba(47, 106, 74, 0.2);
+
+  /* ナッジー固定色（テーマ非依存。dark 側では上書きしないこと） */
+  --nudgey-body: #ffffff; /* 旧 --chip-bg rgba(255,255,255,0.8) を不透明化 */
+  --nudgey-face: #f3faf5; /* 旧 --foam */
+  --nudgey-ink: #173a40; /* 旧 --sea-ink（目・メガネ・happy口） */
+  --nudgey-ink-soft: #416166; /* 旧 --sea-ink-soft（脚・口） */
+  --nudgey-cheek: #4fb8b2; /* 旧 --lagoon（頬） */
+  --nudgey-line: rgba(23, 58, 64, 0.2); /* 旧 --line 0.14 をやや強めた輪郭 */
 }
 
 :root[data-theme="dark"] {

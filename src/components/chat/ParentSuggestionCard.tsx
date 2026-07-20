@@ -1,3 +1,4 @@
+import type { NudgeyMood } from "../NudgeySheep";
 import ChatCard from "./ChatCard";
 import { PARENT_SUGGESTION_ACTIONS, type ParentSuggestionAction } from "./reactions";
 import type { NudgeStatus } from "./useChat";
@@ -5,11 +6,13 @@ import type { NudgeStatus } from "./useChat";
 export default function ParentSuggestionCard({
   parentTask,
   status,
+  mood,
   onRevive,
   onDecline,
 }: {
   parentTask: string;
   status: NudgeStatus;
+  mood: NudgeyMood;
   onRevive: () => void;
   onDecline: () => void;
 }) {
@@ -20,7 +23,7 @@ export default function ParentSuggestionCard({
   };
 
   return (
-    <ChatCard bubble={`元の「${parentTask}」もやってみる？`}>
+    <ChatCard bubble={`元の「${parentTask}」もやってみる？`} mood={mood}>
       <div className="flex flex-wrap gap-2">
         {PARENT_SUGGESTION_ACTIONS.map((action) => (
           <button

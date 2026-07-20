@@ -49,6 +49,7 @@ function App() {
           <ChatTimeline
             messages={messages}
             thinking={thinking}
+            mood={mood}
             onReact={react}
             onKeep={keep}
             onDiscard={discard}

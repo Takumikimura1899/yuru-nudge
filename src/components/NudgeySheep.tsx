@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, type Variants } from "motion/react";
+import { SheepEars, SheepFace, SheepGlasses, SheepWool, type NudgeyMood } from "./nudgey/parts";
 
-export type NudgeyMood = "chill" | "sharp" | "happy";
+export type { NudgeyMood };
 
 // happy のときだけ小さく2回跳ねる。chill/sharp は静止（y:0）のまま。
 const sheepVariants: Variants = {
@@ -21,7 +22,6 @@ const sheepVariants: Variants = {
  */
 export default function NudgeySheep({ mood, className }: { mood: NudgeyMood; className?: string }) {
   const isSharp = mood === "sharp";
-  const isHappy = mood === "happy";
 
   return (
     <svg
@@ -44,7 +44,7 @@ export default function NudgeySheep({ mood, className }: { mood: NudgeyMood; cla
 
       <motion.g variants={sheepVariants} animate={mood} initial={false}>
         {/* 脚（常時描画） */}
-        <g fill="var(--sea-ink-soft)">
+        <g fill="var(--nudgey-ink-soft)">
           <rect x="34" y="80" width="8" height="16" rx="4" />
           <rect x="50" y="84" width="8" height="16" rx="4" />
           <rect x="64" y="84" width="8" height="16" rx="4" />
@@ -52,59 +52,13 @@ export default function NudgeySheep({ mood, className }: { mood: NudgeyMood; cla
         </g>
 
         {/* 耳（常時描画） */}
-        <g fill="var(--chip-bg)" stroke="var(--line)" strokeWidth="1.5">
-          <ellipse cx="26" cy="64" rx="8" ry="13" transform="rotate(-24 26 64)" />
-          <ellipse cx="94" cy="64" rx="8" ry="13" transform="rotate(24 94 64)" />
-        </g>
+        <SheepEars />
 
         {/* ボディ（もこもこ雲＝円の集合。常時描画） */}
-        <g fill="var(--chip-bg)" stroke="var(--line)" strokeWidth="1.5">
-          <ellipse cx="60" cy="58" rx="32" ry="24" />
-          <circle cx="32" cy="50" r="14" />
-          <circle cx="88" cy="50" r="14" />
-          <circle cx="44" cy="32" r="15" />
-          <circle cx="76" cy="32" r="15" />
-          <circle cx="60" cy="27" r="16" />
-        </g>
+        <SheepWool />
 
         {/* 顔（常時描画・パーツのみ mood で切替） */}
-        <g>
-          <ellipse
-            cx="60"
-            cy="68"
-            rx="22"
-            ry="17"
-            fill="var(--foam)"
-            stroke="var(--line)"
-            strokeWidth="1.5"
-          />
-
-          {isHappy ? (
-            <g data-testid="happy-face">
-              <g stroke="var(--sea-ink)" strokeWidth="2.5" strokeLinecap="round" fill="none">
-                <path d="M48 65 q4 6 8 0" />
-                <path d="M64 65 q4 6 8 0" />
-              </g>
-              <g fill="var(--lagoon)" opacity="0.55">
-                <circle cx="44" cy="74" r="4" />
-                <circle cx="76" cy="74" r="4" />
-              </g>
-            </g>
-          ) : (
-            <g fill="var(--sea-ink)">
-              <circle cx="52" cy="68" r="2.8" />
-              <circle cx="68" cy="68" r="2.8" />
-            </g>
-          )}
-
-          <path
-            d="M56 78 q4 3 8 0"
-            stroke="var(--sea-ink-soft)"
-            strokeWidth="2"
-            strokeLinecap="round"
-            fill="none"
-          />
-        </g>
+        <SheepFace mood={mood} />
 
         {/* メガネ（sharp のときだけ。着脱をふわっと見せる） */}
         <AnimatePresence>
@@ -116,16 +70,8 @@ export default function NudgeySheep({ mood, className }: { mood: NudgeyMood; cla
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.2, ease: "easeOut" }}
-              stroke="var(--sea-ink)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              fill="none"
             >
-              <circle cx="52" cy="68" r="7.5" fill="var(--foam)" fillOpacity="0.35" />
-              <circle cx="68" cy="68" r="7.5" fill="var(--foam)" fillOpacity="0.35" />
-              <line x1="59.5" y1="68" x2="60.5" y2="68" />
-              <line x1="44.5" y1="65" x2="39" y2="61" />
-              <line x1="75.5" y1="65" x2="81" y2="61" />
+              <SheepGlasses />
             </motion.g>
           )}
         </AnimatePresence>

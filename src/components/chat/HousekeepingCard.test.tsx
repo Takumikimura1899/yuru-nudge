@@ -15,6 +15,7 @@ const createMockItem = (overrides: Partial<HousekeepingRow> = {}): HousekeepingR
 
 const createDefaultProps = (overrides: Partial<{ items: HousekeepingRow[] }> = {}) => ({
   items: [createMockItem()],
+  mood: "chill" as const,
   onKeep: vi.fn(),
   onDiscard: vi.fn(),
   ...overrides,

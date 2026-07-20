@@ -1,17 +1,20 @@
+import type { NudgeyMood } from "../NudgeySheep";
 import ChatCard from "./ChatCard";
 import type { HousekeepingRow } from "./useChat";
 
 export default function HousekeepingCard({
   items,
+  mood,
   onKeep,
   onDiscard,
 }: {
   items: HousekeepingRow[];
+  mood: NudgeyMood;
   onKeep: (seedId: string) => void;
   onDiscard: (seedId: string) => void;
 }) {
   return (
-    <ChatCard bubble="これまだ気になってる？" maxWidthClassName="max-w-[85%]">
+    <ChatCard bubble="これまだ気になってる？" mood={mood} maxWidthClassName="max-w-[85%]">
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {items.map((item) => {
           const disabled = item.status === "discarding";
