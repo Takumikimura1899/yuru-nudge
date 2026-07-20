@@ -22,9 +22,11 @@ const COPY = {
  * タネ袋のオーバーレイ + ボトムシート本体（presentational + 表示中のフォーカス/スクロール制御）。
  * 表示要否は親（SeedPouch）がマウント/アンマウントで制御するが、AnimatePresence は退場アニメーション
  * 完了までこのコンポーネントをマウントし続けるため、body スクロールロック・フォーカストラップ・
- * Esc クローズの effect はここに置く（`open` の即時変化ではなく実 unmount = アニメ完了時に
- * クリーンアップが走るようにするため。トリガーへのフォーカス復帰だけは親の
- * AnimatePresence#onExitComplete で行う）。
+ * Esc クローズ・フォーカス復帰の effect はここに置く（`open` の即時変化ではなく実 unmount =
+ * アニメ完了時にクリーンアップが走るようにするため）。フォーカス復帰はクリーンアップ内で
+ * 「focusin リスナー除去 → returnFocusRef（未指定時は開時要素）へ復帰」の順に行う —
+ * 親側の onExitComplete で復帰させると、まだ生きている focusin リスナーが復帰フォーカスを
+ * シートへ引き戻す競合が起きる（テストで再現済みのため復活させないこと）。
  */
 export default function SeedPouchSheet({
   seeds,
@@ -41,6 +43,8 @@ export default function SeedPouchSheet({
   returnFocusRef?: { readonly current: HTMLElement | null };
 }) {
   const count = seeds?.length ?? 0;
+  // 一覧が実際に描画される条件（下の描画分岐と一致させる）: エラーでもロード中でも空でもない
+  const listVisible = status !== "error" && seeds !== null && count > 0;
   const panelRef = useRef<HTMLDivElement>(null);
 
   // 表示中は body スクロールをロックする。クリーンアップは実 unmount（退場アニメーション完了後）で走る
@@ -139,11 +143,10 @@ export default function SeedPouchSheet({
         </div>
 
         {/* スクロール領域はフォーカス可能にしないとキーボード（矢印キー）でスクロールできない。
-            中身が空のときはフォーカス対象から外す */}
+            region/ラベル/tabIndex は「一覧が実際に描画されているとき」だけ付ける
+            （stale な seeds 件数で決めると、エラー表示中も『タネの一覧』として focusable に残る） */}
         <div
-          role="region"
-          aria-label={COPY.listRegion}
-          tabIndex={count > 0 ? 0 : -1}
+          {...(listVisible && { role: "region", "aria-label": COPY.listRegion, tabIndex: 0 })}
           className="max-h-[70vh] overflow-y-auto rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chip-line)]"
         >
           {status === "error" ? (

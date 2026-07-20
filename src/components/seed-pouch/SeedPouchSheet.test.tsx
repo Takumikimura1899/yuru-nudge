@@ -77,15 +77,23 @@ describe("SeedPouchSheet", () => {
     expect(heading).toHaveAttribute("id", headingId);
   });
 
-  test("スクロール領域はタネがあるときのみキーボードフォーカス可能（tabindex=0）になる", () => {
+  test("スクロール領域は一覧が実際に描画されているときのみ region + キーボードフォーカス可能（tabindex=0）になる", () => {
     const { unmount } = render(
       <SeedPouchSheet {...createDefaultProps({ seeds: [createPouchSeed()] })} />,
     );
     expect(screen.getByRole("region", { name: "タネの一覧" })).toHaveAttribute("tabindex", "0");
     unmount();
 
-    render(<SeedPouchSheet {...createDefaultProps({ seeds: [] })} />);
-    expect(screen.getByRole("region", { name: "タネの一覧" })).toHaveAttribute("tabindex", "-1");
+    const empty = render(<SeedPouchSheet {...createDefaultProps({ seeds: [] })} />);
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    empty.unmount();
+
+    // stale-while-revalidate で前回の seeds が残ったままエラーになっても、
+    // エラー表示中は『タネの一覧』として focusable に残らない
+    render(
+      <SeedPouchSheet {...createDefaultProps({ seeds: [createPouchSeed()], status: "error" })} />,
+    );
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
 
   test("シート外へフォーカスが逃げても focusin で先頭 focusable（✕）へ引き戻す", () => {
