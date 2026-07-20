@@ -99,6 +99,20 @@ describe("SeedPouchSheet", () => {
     outside.remove();
   });
 
+  test("unmount 時のフォーカス復帰は returnFocusRef を優先する（クリックでボタンにフォーカスが乗らないブラウザでも開時要素の記録に依存しない）", () => {
+    const returnTarget = document.createElement("button");
+    document.body.append(returnTarget);
+    // 開時の activeElement が body のまま（macOS Safari/Firefox のクリック挙動を模す）
+    const { unmount } = render(
+      <SeedPouchSheet {...createDefaultProps()} returnFocusRef={{ current: returnTarget }} />,
+    );
+
+    unmount();
+
+    expect(returnTarget).toHaveFocus();
+    returnTarget.remove();
+  });
+
   test("✕ の装飾絵文字 span は aria-hidden で読み上げツリーから除外される", () => {
     render(<SeedPouchSheet {...createDefaultProps()} />);
 

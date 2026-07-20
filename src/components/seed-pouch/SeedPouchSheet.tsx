@@ -31,11 +31,14 @@ export default function SeedPouchSheet({
   status,
   onClose,
   onRetry,
+  returnFocusRef,
 }: {
   seeds: PouchSeed[] | null;
   status: "loading" | "error" | "ready";
   onClose: () => void;
   onRetry: () => void;
+  /** 閉じたあとフォーカスを戻す先（通常はトリガーボタン）。未指定時は開いた時点の要素へ戻す */
+  returnFocusRef?: { readonly current: HTMLElement | null };
 }) {
   const count = seeds?.length ?? 0;
   const panelRef = useRef<HTMLDivElement>(null);
@@ -89,14 +92,16 @@ export default function SeedPouchSheet({
     document.addEventListener("focusin", handleFocusIn);
     // クリーンアップは実 unmount（退場アニメーション完了）時。focusin リスナーを外した後に
     // 復帰フォーカスを行う順序なので、復帰先を自分で引き戻してしまう競合は構造的に起きない。
+    // 復帰先は returnFocusRef を優先する（macOS の Safari/Firefox はクリックでボタンに
+    // フォーカスが乗らず、開時の activeElement が body になりうるため記録だけでは不十分）。
     // 依存の onClose は親で useCallback 済み（不安定だと表示中に effect が再実行され
     // previouslyFocused の記録が壊れる）
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.removeEventListener("focusin", handleFocusIn);
-      previouslyFocused?.focus();
+      (returnFocusRef?.current ?? previouslyFocused)?.focus();
     };
-  }, [onClose]);
+  }, [onClose, returnFocusRef]);
 
   return (
     <>
