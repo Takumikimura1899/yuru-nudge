@@ -15,6 +15,7 @@ const COPY = {
   retry: "もういちど",
   close: "閉じる",
   nudgedPill: "提案中",
+  listRegion: "タネの一覧",
 };
 
 /**
@@ -132,7 +133,14 @@ export default function SeedPouchSheet({
           </button>
         </div>
 
-        <div className="max-h-[70vh] overflow-y-auto">
+        {/* スクロール領域はフォーカス可能にしないとキーボード（矢印キー）でスクロールできない。
+            中身が空のときはフォーカス対象から外す */}
+        <div
+          role="region"
+          aria-label={COPY.listRegion}
+          tabIndex={count > 0 ? 0 : -1}
+          className="max-h-[70vh] overflow-y-auto rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chip-line)]"
+        >
           {status === "error" ? (
             <div className="flex flex-col items-start gap-3 py-4">
               <p className="m-0 text-sm text-[var(--sea-ink-soft)]">{COPY.error}</p>

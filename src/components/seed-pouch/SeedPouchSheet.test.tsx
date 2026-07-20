@@ -77,6 +77,17 @@ describe("SeedPouchSheet", () => {
     expect(heading).toHaveAttribute("id", headingId);
   });
 
+  test("スクロール領域はタネがあるときのみキーボードフォーカス可能（tabindex=0）になる", () => {
+    const { unmount } = render(
+      <SeedPouchSheet {...createDefaultProps({ seeds: [createPouchSeed()] })} />,
+    );
+    expect(screen.getByRole("region", { name: "タネの一覧" })).toHaveAttribute("tabindex", "0");
+    unmount();
+
+    render(<SeedPouchSheet {...createDefaultProps({ seeds: [] })} />);
+    expect(screen.getByRole("region", { name: "タネの一覧" })).toHaveAttribute("tabindex", "-1");
+  });
+
   test("シート外へフォーカスが逃げても focusin で先頭 focusable（✕）へ引き戻す", () => {
     render(<SeedPouchSheet {...createDefaultProps()} />);
     const outside = document.createElement("button");
