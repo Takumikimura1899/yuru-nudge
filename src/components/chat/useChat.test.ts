@@ -26,7 +26,7 @@ vi.mock("../../server/profile", () => ({
   updateIntensity: (...args: unknown[]) => updateIntensityMock(...args),
 }));
 
-const { useChat } = await import("./useChat");
+const { useChat, buildChip, toMessages } = await import("./useChat");
 
 // useChat.ts のプライベート定数と同じ文言（棚卸し全行処理後の締めメッセージ）
 const HOUSEKEEPING_DONE_REPLY = "じゃあ今回はここまでにするね〜。また気になったら教えてね";
@@ -68,6 +68,76 @@ beforeEach(() => {
   postReviveParentMock.mockReset();
   postMutterMock.mockReset();
   updateIntensityMock.mockReset();
+});
+
+describe("buildChip（つぶやき分類チップの組み立て）", () => {
+  test("seed かつ task ありなら category:seed で task をそのまま渡す", () => {
+    expect(buildChip("seed", "部屋を片付ける")).toEqual({
+      category: "seed",
+      task: "部屋を片付ける",
+    });
+  });
+
+  test("seed かつ task が null なら category:seed, task:null になる（LLM スキーマ逸脱の稀ケース）", () => {
+    expect(buildChip("seed", null)).toEqual({ category: "seed", task: null });
+  });
+
+  test("mood なら task の値によらず category:mood, task:null になる", () => {
+    expect(buildChip("mood", "本来 mood では入らない値")).toEqual({
+      category: "mood",
+      task: null,
+    });
+    expect(buildChip("mood", null)).toEqual({ category: "mood", task: null });
+  });
+
+  test("seed/mood 以外の想定外カテゴリは undefined を返す（チップ非表示）", () => {
+    expect(buildChip("unknown", null)).toBeUndefined();
+    expect(buildChip("", "何か")).toBeUndefined();
+  });
+});
+
+describe("toMessages（タイムライン行 → チャットメッセージへの変換）", () => {
+  test("reply ありの行は、ユーザーバブルとナッジーバブル(chip付き)の2件に展開する", () => {
+    const rows = [
+      {
+        id: "m-1",
+        content: "部屋を片付けたい",
+        reply: "部屋を片付けたいんだねぇ。覚えておくよ",
+        category: "seed",
+        processed_task: "部屋を片付ける",
+      },
+    ];
+
+    expect(toMessages(rows)).toEqual([
+      { kind: "text", id: "m-1-user", role: "user", text: "部屋を片付けたい" },
+      {
+        kind: "text",
+        id: "m-1",
+        role: "nudgey",
+        text: "部屋を片付けたいんだねぇ。覚えておくよ",
+        chip: { category: "seed", task: "部屋を片付ける" },
+      },
+    ]);
+  });
+
+  test("reply が null の行は、ナッジーバブル自体を生成せずユーザーバブルのみになる", () => {
+    const rows = [
+      { id: "m-2", content: "独り言", reply: null, category: "mood", processed_task: null },
+    ];
+
+    expect(toMessages(rows)).toEqual([
+      { kind: "text", id: "m-2-user", role: "user", text: "独り言" },
+    ]);
+  });
+
+  test("複数行は古い順のまま平坦化される", () => {
+    const rows = [
+      { id: "m-1", content: "A", reply: "返答A", category: "mood", processed_task: null },
+      { id: "m-2", content: "B", reply: null, category: "seed", processed_task: "タスクB" },
+    ];
+
+    expect(toMessages(rows).map((m) => m.id)).toEqual(["m-1-user", "m-1", "m-2-user"]);
+  });
 });
 
 describe("起動時の resolveNudge", () => {
@@ -166,6 +236,80 @@ describe("起動時の resolveNudge", () => {
 });
 
 describe("send（つぶやき送信）", () => {
+  test("成功（ok:true, seed分類）: ナッジーの応答バブルに category/processedTask から組み立てた chip が付き、true を返す", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: {
+        id: "m-1",
+        category: "seed",
+        reply: "部屋を片付けたいんだねぇ。覚えておくよ",
+      },
+      processedTask: "部屋を片付ける",
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    let sendResult: boolean | undefined;
+    await act(async () => {
+      sendResult = await result.current.send("部屋を片付けたい");
+    });
+
+    expect(sendResult).toBe(true);
+    const messages = result.current.messages;
+    expect(messages.find((m) => m.kind === "text" && m.role === "user")).toMatchObject({
+      text: "部屋を片付けたい",
+    });
+    expect(messages.find((m) => m.kind === "text" && m.role === "nudgey")).toMatchObject({
+      text: "部屋を片付けたいんだねぇ。覚えておくよ",
+      chip: { category: "seed", task: "部屋を片付ける" },
+    });
+  });
+
+  test("成功（ok:true, mood分類）: chip は category:mood, task:null になる", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: { id: "m-2", category: "mood", reply: "そっかぁ、疲れてるんだねぇ" },
+      processedTask: null,
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("今日は疲れた");
+    });
+
+    expect(
+      result.current.messages.find((m) => m.kind === "text" && m.role === "nudgey"),
+    ).toMatchObject({
+      text: "そっかぁ、疲れてるんだねぇ",
+      chip: { category: "mood", task: null },
+    });
+  });
+
+  test("失敗（ok:false）: チップは付与されず、キャラ内エラー応答のみが残る（既存挙動）", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: false,
+      reply: "今日はちょっとぼんやりしてるみたい",
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    let sendResult: boolean | undefined;
+    await act(async () => {
+      sendResult = await result.current.send("部屋を片付けたい");
+    });
+
+    expect(sendResult).toBe(false);
+    const messages = result.current.messages;
+    expect(messages.some((m) => m.kind === "text" && m.role === "user")).toBe(false);
+    const nudgeyMessage = messages.find((m) => m.kind === "text" && m.role === "nudgey");
+    expect(nudgeyMessage).toMatchObject({ text: "今日はちょっとぼんやりしてるみたい" });
+    expect(nudgeyMessage).not.toHaveProperty("chip");
+  });
+
   test("postMutter が in-flight の間に別のバブルが追加されても、失敗時の巻き戻しは楽観表示した本人のバブルだけを消す", async () => {
     let resolvePostMutter!: (value: { ok: false; reply: string }) => void;
     postMutterMock.mockImplementation(

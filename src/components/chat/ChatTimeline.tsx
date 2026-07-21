@@ -82,7 +82,13 @@ export default function ChatTimeline({
             );
           case "text":
             return (
-              <ChatMessage key={message.id} role={message.role} text={message.text} mood={mood} />
+              <ChatMessage
+                key={message.id}
+                role={message.role}
+                text={message.text}
+                mood={mood}
+                chip={message.chip}
+              />
             );
         }
       })}

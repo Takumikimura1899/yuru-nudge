@@ -105,7 +105,7 @@ describe("processMutter", () => {
       content: "部屋を片付けたい",
     });
 
-    expect(result).toEqual({ ok: true, muttering: saved });
+    expect(result).toEqual({ ok: true, muttering: saved, processedTask: nudgey.processed_task });
     expect(db.insertInto.mock.calls.map((c) => c[0])).toEqual(["mutterings", "seeds"]);
     expect(db.values).toHaveBeenCalledWith({
       user_id: "test-user",
@@ -137,7 +137,7 @@ describe("processMutter", () => {
       content: "今日は疲れた",
     });
 
-    expect(result).toEqual({ ok: true, muttering: saved });
+    expect(result).toEqual({ ok: true, muttering: saved, processedTask: null });
     expect(db.insertInto.mock.calls.map((c) => c[0])).toEqual(["mutterings"]);
     expect(db.deleteFrom).toHaveBeenCalledWith("mutterings");
   });
@@ -207,5 +207,53 @@ describe("fetchTimeline", () => {
     expect(db.where).toHaveBeenCalledWith("user_id", "=", "test-user");
     expect(db.orderBy).toHaveBeenCalledWith("created_at", "desc");
     expect(db.limit).toHaveBeenCalledWith(20);
+  });
+
+  test("processed_task は原本（parent_id が null の親）の seed に限定したサブクエリで取得する（leftJoin へ退行すると緩和版の子seedとの重複行を招くため、正しい不変条件を保証する）", async () => {
+    const db = createMockDb();
+    db.execute.mockResolvedValue([]);
+
+    // 実装は eb.selectFrom("seeds")...where("seeds.parent_id","is",null).as("processed_task")
+    // というスカラサブクエリを select() のコールバック引数に渡している。Kysely の
+    // ExpressionBuilder を模したフェイクをコールバックへ渡し、実際に呼び出させて検証する
+    const fakeEb = {
+      selectFrom: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      whereRef: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
+      as: vi.fn((alias: string) => alias),
+    };
+    db.select = vi.fn((arg: unknown) => {
+      if (typeof arg === "function") {
+        (arg as (eb: typeof fakeEb) => unknown[])(fakeEb);
+      }
+      return db;
+    });
+
+    await fetchTimeline(asDb(db), "test-user");
+
+    expect(fakeEb.selectFrom).toHaveBeenCalledWith("seeds");
+    expect(fakeEb.select).toHaveBeenCalledWith("processed_task");
+    expect(fakeEb.whereRef).toHaveBeenCalledWith("seeds.muttering_id", "=", "mutterings.id");
+    expect(fakeEb.where).toHaveBeenCalledWith("seeds.parent_id", "is", null);
+    expect(fakeEb.as).toHaveBeenCalledWith("processed_task");
+  });
+
+  test("緩和版の親子が同一 muttering_id を持つ場合でも、DBが解決した行（親のタスク名を持つ1行）をそのまま重複させずに返す", async () => {
+    const db = createMockDb();
+    // 実 DB ではスカラサブクエリにより、親（parent_id null）子（parent_id=親id）が同一
+    // muttering_id を共有していても行は増殖せず、processed_task は親のタスク名になる。
+    // ここではその「正しく解決された」DB応答を模し、fetchTimeline が加工（reverse以外）で
+    // 行を増やしたり processed_task を取り違えたりしないことを確認する
+    const resolvedRow = createMockMuttering({
+      id: "m-1",
+      processed_task: "部屋を片付ける", // 親（原本）のタスク名
+    });
+    db.execute.mockResolvedValue([resolvedRow]);
+
+    const result = await fetchTimeline(asDb(db), "test-user");
+
+    expect(result).toEqual([resolvedRow]);
+    expect(result).toHaveLength(1);
   });
 });
