@@ -43,8 +43,16 @@ export default function SeedPouchSheet({
   returnFocusRef?: { readonly current: HTMLElement | null };
 }) {
   const count = seeds?.length ?? 0;
-  // 一覧が実際に描画される条件（下の描画分岐と一致させる）: エラーでもロード中でも空でもない
-  const listVisible = status !== "error" && seeds !== null && count > 0;
+  // シート本文に描画する内容の単一ソース。region/tabIndex の付与条件と描画分岐の両方が
+  // ここから導出されるため、両者が食い違うことは構造的にない
+  const view =
+    status === "error"
+      ? ({ kind: "error" } as const)
+      : seeds === null
+        ? ({ kind: "loading" } as const)
+        : seeds.length === 0
+          ? ({ kind: "empty" } as const)
+          : ({ kind: "list", seeds } as const);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // 表示中は body スクロールをロックする。クリーンアップは実 unmount（退場アニメーション完了後）で走る
@@ -143,13 +151,17 @@ export default function SeedPouchSheet({
         </div>
 
         {/* スクロール領域はフォーカス可能にしないとキーボード（矢印キー）でスクロールできない。
-            region/ラベル/tabIndex は「一覧が実際に描画されているとき」だけ付ける
+            region/ラベル/tabIndex は一覧描画時（view.kind === "list"）だけ付ける
             （stale な seeds 件数で決めると、エラー表示中も『タネの一覧』として focusable に残る） */}
         <div
-          {...(listVisible && { role: "region", "aria-label": COPY.listRegion, tabIndex: 0 })}
+          {...(view.kind === "list" && {
+            role: "region",
+            "aria-label": COPY.listRegion,
+            tabIndex: 0,
+          })}
           className="max-h-[70vh] overflow-y-auto rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--chip-line)]"
         >
-          {status === "error" ? (
+          {view.kind === "error" ? (
             <div className="flex flex-col items-start gap-3 py-4">
               <p className="m-0 text-sm text-[var(--sea-ink-soft)]">{COPY.error}</p>
               <button
@@ -160,15 +172,15 @@ export default function SeedPouchSheet({
                 {COPY.retry}
               </button>
             </div>
-          ) : seeds === null ? (
+          ) : view.kind === "loading" ? (
             <p role="status" className="m-0 py-4 text-sm text-[var(--sea-ink-soft)] italic">
               {COPY.loading}
             </p>
-          ) : count === 0 ? (
+          ) : view.kind === "empty" ? (
             <p className="m-0 py-4 text-sm text-[var(--sea-ink-soft)]">{COPY.empty}</p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-2 p-0">
-              {seeds.map((seed) => (
+              {view.seeds.map((seed) => (
                 <li
                   key={seed.seedId}
                   className="flex items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-[var(--surface)] px-4 py-2.5"
