@@ -43,7 +43,25 @@ Cloudflare Access の認可は Cookie ベース（[`./auth-flow.md`](./auth-flow
 
 > iOS 実機での動作確認は未実施（今後実施予定）。
 
-## 5. アイコンの再生成手順
+## 5. Android Chrome で PWA インストールできない問題（manifest 取得と Cookie）
+
+Cloudflare Access 前段保護下（[`./auth-flow.md`](./auth-flow.md) §6.4）で、Android Chrome にインストールメニュー（「アプリをインストール」）が表示されない問題があった。
+
+- Chrome は `<link rel="manifest">` の取得を、**同一オリジンであっても credentials 省略（Cookie を送らない）モードで行う仕様**になっている
+- 本番は Cloudflare Access が Cookie（`CF_Authorization`）ベースで前段保護しているため、Cookie なしの manifest リクエストは `cloudflareaccess.com` への 302 リダイレクトになる（2026-07-21 に curl で確認済み）
+- その結果 Chrome は「有効な manifest を取得できない」と判定し、Android Chrome にインストールメニューが出なかった
+
+**対処**: `src/routes/__root.tsx` の manifest リンクに `crossOrigin: "use-credentials"` を追加し、manifest 取得時に Cookie を送るようにした。これにより Access ログイン済みのブラウザでは manifest が 200 で返る。
+
+> 残る注意点
+>
+> - Access 未ログイン状態では、この対処後も Cookie 自体が無いためインストール判定は通らない
+> - Access セッションが失効しかけのタイミングでは、manifest 取得が `cloudflareaccess.com` への
+>   リダイレクトを挟むことで CORS モードの取得として失敗し、インストール判定が通らないことがある
+>   （修正前と同じ挙動に縮退するだけで劣化ではない。再ログイン後は回復する）
+> - manifest が参照するアイコンも Access 配下にある。将来インストール判定が再び失敗する場合は、Access 側に `/manifest.json` とアイコンパスのみ Bypass ポリシーを追加する選択肢がある（機密情報を含まないため実害はない）
+
+## 6. アイコンの再生成手順
 
 アイコンの元データは `public/icon.svg`（羊のシルエット）。編集後は以下のコマンドで各サイズを再生成する。
 
