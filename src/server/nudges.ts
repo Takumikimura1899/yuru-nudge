@@ -221,6 +221,31 @@ async function fetchPendingSeeds(
     .execute();
 }
 
+export type PouchSeed = { seedId: string; task: string; status: "pending" | "nudged" };
+
+/**
+ * タネ袋（ヘッダー🌱ボタン）に表示する蓄積タネ（pending/nudged）一覧を取得する。
+ * 並びは決定的に status（nudged→pending）→ created_at asc → id asc。created_at は並びにのみ使い、
+ * 返り値には含めない（経過時間の可視化はプレッシャーになるため非表示方針）。
+ */
+export async function fetchPouchSeeds(db: Kysely<DB>, userId: string): Promise<PouchSeed[]> {
+  const rows = await db
+    .selectFrom("seeds")
+    .select(["id", "processed_task", "status"])
+    .where("user_id", "=", userId)
+    .where("status", "in", ["pending", "nudged"])
+    .orderBy((eb) => eb.case().when("status", "=", "nudged").then(0).else(1).end())
+    .orderBy("created_at", "asc")
+    .orderBy("id", "asc")
+    .execute();
+
+  return rows.map((row) => ({
+    seedId: row.id,
+    task: row.processed_task,
+    status: row.status as PouchSeed["status"],
+  }));
+}
+
 /** 全 status 横断で最後にナッジした日時（設計書 §9.1 の間隔判定に使う） */
 async function fetchLastNudgedAt(db: Kysely<DB>, userId: string): Promise<Date | null> {
   const row = await db
@@ -599,6 +624,18 @@ export const postReviveParent = createServerFn({ method: "POST" })
     const db = createDb();
     try {
       return await reviveParent(db, { userId: context.userId, seedId: data.parentSeedId });
+    } finally {
+      await db.destroy();
+    }
+  });
+
+/** タネ袋（ヘッダー🌱ボタン）を開いたときに蓄積タネ一覧を取得する */
+export const getSeedPouch = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const db = createDb();
+    try {
+      return await fetchPouchSeeds(db, context.userId);
     } finally {
       await db.destroy();
     }
