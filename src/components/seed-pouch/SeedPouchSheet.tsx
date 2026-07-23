@@ -1,5 +1,6 @@
 import { motion } from "motion/react";
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { PouchSeed } from "../../server/nudges";
 
 const SHEET_HEADING_ID = "seed-pouch-heading";
@@ -115,7 +116,13 @@ export default function SeedPouchSheet({
     };
   }, [onClose, returnFocusRef]);
 
-  return (
+  // body 直下へポータル描画する。ヘッダー内にマウントされるが、ヘッダーの backdrop-filter が
+  // fixed 子孫の containing block になり、シートの bottom-0 がヘッダー基準（=画面上部）に
+  // 解決されてしまうため（#13）。祖先のスタイルに依存しない位置に出すことで fixed の基準を
+  // ビューポートに戻す。AnimatePresence の presence は context 経由でポータルを越えて届くので
+  // 退場アニメーションはそのまま機能する。この描画はユーザー操作後のクライアント側のみで起きる
+  // ため SSR で document に触れることはない
+  return createPortal(
     <>
       <motion.div
         aria-hidden
@@ -197,6 +204,7 @@ export default function SeedPouchSheet({
           )}
         </div>
       </motion.div>
-    </>
+    </>,
+    document.body,
   );
 }
