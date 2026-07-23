@@ -14,7 +14,7 @@ export const TIMELINE_LIMIT = 20;
 export const MAX_CONTENT_LENGTH = 140;
 
 /** 新規ナッジ提案の最短間隔（設計書 §9.1）。前回 nudged_at からこの時間が経つまでは新規提案しない */
-export const NUDGE_INTERVAL_HOURS = 12;
+export const NUDGE_INTERVAL_HOURS = 4;
 
 /** nudged 状態のまま無視され続けた場合の自動 archive までの日数（設計書 §9.4） */
 export const NUDGE_TIMEOUT_DAYS = 7;
@@ -54,6 +54,15 @@ export const TALLY_MENTION_PROBABILITY = 0.3;
 
 /** 累計セリフを織り込むための completed 総数の下限（少なすぎる件数では言及しない） */
 export const TALLY_MENTION_MIN_COUNT = 3;
+
+/**
+ * 手動ナッジ（タネ袋の「なにか提案して」）で提案できるタネが1つもなかった際の静的応答（設計書 §9.1）。
+ * LLM は呼ばない
+ */
+export const MANUAL_NUDGE_EMPTY_REPLY = {
+  chill: "いま預かってるタネはないみたい。つぶやいてくれたら、タネにして貯めておくね",
+  sharp: "いま提案できるタネはないね。気になってることがあったら教えて",
+} as const;
 
 /**
  * 親タスクの再提案で「やってみる」が選ばれた際の静的応答（設計書 §3.4）。

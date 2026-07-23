@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import ChatTimeline from "../components/chat/ChatTimeline";
 import IntensityToggle from "../components/chat/IntensityToggle";
 import MutterForm from "../components/chat/MutterForm";
@@ -10,6 +11,11 @@ import { getProfile } from "../server/profile";
 
 export const Route = createFileRoute("/")({
   component: App,
+  // タネ袋シートからの手動ナッジ依頼は URL search param で受ける（設計書 §9.1）。シートは
+  // Header（__root）配下でチャット状態と親子関係がなく、Context・イベントバス・lift は
+  // 規約で導入禁止のため、Router の URL 状態を橋渡しに使う
+  validateSearch: (search: Record<string, unknown>): { nudge?: "manual" } =>
+    search.nudge === "manual" ? { nudge: "manual" } : {},
   loader: async () => {
     const [profile, timeline] = await Promise.all([getProfile(), getTimeline()]);
     return { profile, timeline };
@@ -30,10 +36,28 @@ function App() {
     discard,
     reviveParent,
     declineParent,
+    requestManualNudge,
   } = useChat({
     initialMessages: toMessages(timeline),
     initialIntensity: normalizeIntensity(profile.intensity_level),
   });
+
+  const { nudge } = Route.useSearch();
+  const navigate = useNavigate();
+  // 手動ナッジ: param を検知したら1回だけサーバーへ依頼し、即座に URL から消す（リロードや
+  // ブラウザバックでの再発火を防ぐ）。StrictMode の二重実行は ref でガードし、param が消えたら
+  // リセットして次のボタン押下（再び param が付く）に備える
+  const manualNudgeRequestedRef = useRef(false);
+  useEffect(() => {
+    if (nudge !== "manual") {
+      manualNudgeRequestedRef.current = false;
+      return;
+    }
+    if (manualNudgeRequestedRef.current) return;
+    manualNudgeRequestedRef.current = true;
+    void requestManualNudge();
+    void navigate({ to: "/", search: {}, replace: true });
+  }, [nudge]);
 
   const mood: NudgeyMood = celebrating ? "happy" : normalizeIntensity(intensity);
 

@@ -10,6 +10,13 @@ vi.mock("../../server/nudges", () => ({
   getSeedPouch: (...args: unknown[]) => getSeedPouchMock(...args),
 }));
 
+// SeedPouch は手動ナッジの橋渡しに useNavigate を使う。テストは Router ツリー外で render するため
+// フックだけ差し替える（遷移の中身は navigateMock の引数で検証する）
+const navigateMock = vi.fn();
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navigateMock,
+}));
+
 const { default: SeedPouch } = await import("./SeedPouch");
 
 const createPouchSeed = (overrides: Partial<PouchSeed> = {}): PouchSeed => ({
@@ -35,6 +42,7 @@ function createDeferred<T>() {
 beforeEach(() => {
   getSeedPouchMock.mockReset();
   getSeedPouchMock.mockResolvedValue([]);
+  navigateMock.mockReset();
 });
 
 afterEach(() => {
@@ -104,6 +112,20 @@ describe("SeedPouch", () => {
 
     await user.click(overlay);
 
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("『なにか提案して』でシートが閉じ、/?nudge=manual へ navigate する（手動ナッジの橋渡し）", async () => {
+    const user = userEvent.setup();
+    getSeedPouchMock.mockResolvedValue([createPouchSeed()]);
+    render(<SeedPouch />);
+    const trigger = await screen.findByRole("button", { name: /タネ袋を開く/ });
+    await user.click(trigger);
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: "なにか提案して" }));
+
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/", search: { nudge: "manual" } });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 

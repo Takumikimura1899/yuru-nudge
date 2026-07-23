@@ -2,15 +2,17 @@
 import "@testing-library/jest-dom/vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vite-plus/test";
-import { FALLBACK_REPLY } from "../../server/ai/constants";
+import { FALLBACK_REPLY, MANUAL_NUDGE_EMPTY_REPLY } from "../../server/ai/constants";
 import type { ChatMessageData } from "./useChat";
 
 const resolveNudgeMock = vi.fn();
+const requestNudgeMock = vi.fn();
 const postReactionMock = vi.fn();
 const postDiscardMock = vi.fn();
 const postReviveParentMock = vi.fn();
 vi.mock("../../server/nudges", () => ({
   resolveNudge: (...args: unknown[]) => resolveNudgeMock(...args),
+  requestNudge: (...args: unknown[]) => requestNudgeMock(...args),
   postReaction: (...args: unknown[]) => postReactionMock(...args),
   postDiscard: (...args: unknown[]) => postDiscardMock(...args),
   postReviveParent: (...args: unknown[]) => postReviveParentMock(...args),
@@ -63,6 +65,7 @@ const createParentSuggestionMessage = (
 
 beforeEach(() => {
   resolveNudgeMock.mockReset().mockResolvedValue({ kind: "none" });
+  requestNudgeMock.mockReset().mockResolvedValue({ kind: "none" });
   postReactionMock.mockReset();
   postDiscardMock.mockReset();
   postReviveParentMock.mockReset();
@@ -155,7 +158,9 @@ describe("起動時の resolveNudge", () => {
       expect(result.current.messages).toEqual([
         {
           kind: "nudge",
-          id: "seed-1",
+          // カード id は都度採番（seedId ではない）。手動ナッジの再表示で同一 seed のカードが
+          // 複数回 append されても key が衝突しないようにするため
+          id: expect.any(String),
           seedId: "seed-1",
           prophecy: "片付いた部屋、気持ちいいかも",
           status: "idle",
@@ -351,6 +356,232 @@ describe("send（つぶやき送信）", () => {
     expect(
       messages.find((m) => m.kind === "text" && m.text === "今日はちょっとぼんやりしてるみたい"),
     ).toBeTruthy();
+  });
+});
+
+describe("初回提案（send 成功時の firstSeed トリガー）", () => {
+  test("seed 分類の send 成功後に requestNudge(firstSeed) を投げ、kind:nudge ならナッジカードを追加する", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: { id: "m-1", category: "seed", reply: "覚えておくよ" },
+      processedTask: "部屋を片付ける",
+    });
+    requestNudgeMock.mockResolvedValue({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("部屋を片付けたい");
+    });
+
+    expect(requestNudgeMock).toHaveBeenCalledWith({ data: { trigger: "firstSeed" } });
+    await waitFor(() => {
+      expect(result.current.messages.find((m) => m.kind === "nudge")).toMatchObject({
+        seedId: "seed-1",
+        prophecy: "片付いた部屋、気持ちいいかも",
+        status: "idle",
+      });
+    });
+  });
+
+  test("kind:none（ナッジ経験済み等）なら何も追加しない", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: { id: "m-1", category: "seed", reply: "覚えておくよ" },
+      processedTask: "部屋を片付ける",
+    });
+    requestNudgeMock.mockResolvedValue({ kind: "none" });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("部屋を片付けたい");
+    });
+
+    expect(requestNudgeMock).toHaveBeenCalledTimes(1);
+    expect(result.current.messages.some((m) => m.kind === "nudge")).toBe(false);
+  });
+
+  test("mood 分類では requestNudge を呼ばない", async () => {
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: { id: "m-2", category: "mood", reply: "そっかぁ" },
+      processedTask: null,
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("今日は疲れた");
+    });
+
+    expect(requestNudgeMock).not.toHaveBeenCalled();
+  });
+
+  test("send 失敗（ok:false）では requestNudge を呼ばない", async () => {
+    postMutterMock.mockResolvedValue({ ok: false, reply: "今日はちょっと…" });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("部屋を片付けたい");
+    });
+
+    expect(requestNudgeMock).not.toHaveBeenCalled();
+  });
+
+  test("requestNudge の失敗はキャラ内エラーを出さず console.error のみ（send の成功体験を壊さない）", async () => {
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    postMutterMock.mockResolvedValue({
+      ok: true,
+      muttering: { id: "m-1", category: "seed", reply: "覚えておくよ" },
+      processedTask: "部屋を片付ける",
+    });
+    requestNudgeMock.mockRejectedValue(new Error("network error"));
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.send("部屋を片付けたい");
+    });
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        "requestNudge(firstSeed) failed",
+        expect.any(Error),
+      );
+    });
+    // キャラ内エラーバブル（FALLBACK_REPLY）は追加されない
+    expect(
+      result.current.messages.some((m) => m.kind === "text" && m.text === FALLBACK_REPLY),
+    ).toBe(false);
+
+    consoleErrorSpy.mockRestore();
+  });
+});
+
+describe("requestManualNudge（手動ナッジ）", () => {
+  test("kind:nudge ならナッジカードを末尾に追加する", async () => {
+    requestNudgeMock.mockResolvedValue({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.requestManualNudge();
+    });
+
+    expect(requestNudgeMock).toHaveBeenCalledWith({ data: { trigger: "manual" } });
+    expect(result.current.messages.find((m) => m.kind === "nudge")).toMatchObject({
+      seedId: "seed-1",
+      prophecy: "片付いた部屋、気持ちいいかも",
+      status: "idle",
+    });
+  });
+
+  test("既にタイムライン上にある seed が再表示されても、カード id が重複しない（都度採番）", async () => {
+    requestNudgeMock.mockResolvedValue({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [createNudgeMessage()], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.requestManualNudge();
+    });
+
+    const cards = result.current.messages.filter((m) => m.kind === "nudge");
+    expect(cards).toHaveLength(2);
+    expect(new Set(cards.map((c) => c.id)).size).toBe(2);
+    expect(cards.every((c) => c.seedId === "seed-1")).toBe(true);
+  });
+
+  test.each([{ intensity: "chill" as const }, { intensity: "sharp" as const }])(
+    "kind:empty（タネなし）なら intensity=$intensity の静的応答を追加する",
+    async ({ intensity }) => {
+      requestNudgeMock.mockResolvedValue({ kind: "empty" });
+      const { result } = renderHook(() =>
+        useChat({ initialMessages: [], initialIntensity: intensity }),
+      );
+
+      await act(async () => {
+        await result.current.requestManualNudge();
+      });
+
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]).toMatchObject({
+        kind: "text",
+        role: "nudgey",
+        text: MANUAL_NUDGE_EMPTY_REPLY[intensity],
+      });
+    },
+  );
+
+  test("kind:none（LLM 失敗・競合等）ならキャラ内エラー応答を追加する（無反応にしない）", async () => {
+    requestNudgeMock.mockResolvedValue({ kind: "none" });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.requestManualNudge();
+    });
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0]).toMatchObject({
+      kind: "text",
+      role: "nudgey",
+      text: FALLBACK_REPLY,
+    });
+  });
+
+  test("kind:housekeeping なら棚卸しカードを追加する（自動と同一フロー）", async () => {
+    requestNudgeMock.mockResolvedValue({
+      kind: "housekeeping",
+      items: [{ seedId: "seed-1", task: "部屋を片付ける" }],
+    });
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.requestManualNudge();
+    });
+
+    expect(result.current.messages[0]).toMatchObject({
+      kind: "housekeeping",
+      items: [{ seedId: "seed-1", task: "部屋を片付ける", status: "idle" }],
+    });
+  });
+
+  test("通信失敗（throw）ならキャラ内エラー応答を追加する", async () => {
+    requestNudgeMock.mockRejectedValue(new Error("network error"));
+    const { result } = renderHook(() =>
+      useChat({ initialMessages: [], initialIntensity: "chill" }),
+    );
+
+    await act(async () => {
+      await result.current.requestManualNudge();
+    });
+
+    expect(result.current.messages[0]).toMatchObject({
+      kind: "text",
+      role: "nudgey",
+      text: FALLBACK_REPLY,
+    });
   });
 });
 

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { FALLBACK_REPLY } from "../../server/ai/constants";
+import { FALLBACK_REPLY, MANUAL_NUDGE_EMPTY_REPLY } from "../../server/ai/constants";
 import type { NudgeyResponse } from "../../server/ai/schema";
 import {
   postDiscard,
   postReaction,
   postReviveParent,
+  requestNudge,
   resolveNudge,
+  type NudgeResolution,
   type ReactionKind,
 } from "../../server/nudges";
 import { postMutter } from "../../server/mutterings";
@@ -123,6 +125,46 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
     }, CELEBRATION_MS);
   }
 
+  /**
+   * ナッジ解決結果（起動時 / 初回提案 / 手動）をタイムラインへ反映する。none / empty はここでは
+   * 何もしない（empty へのキャラ応答は手動ナッジ側だけが担う）。ナッジカードの id は seedId ではなく
+   * 都度採番する — 手動ナッジの再表示で同じ seed のカードが複数回 append されても React の key が
+   * 衝突しないようにするため。反応処理（react）は seedId スコープなので、同一 seed の複数カードは
+   * 状態遷移が常に揃う
+   */
+  function applyResolution(resolution: NudgeResolution) {
+    if (resolution.kind === "nudge") {
+      setMessages((prev) => [
+        ...prev,
+        {
+          kind: "nudge",
+          id: crypto.randomUUID(),
+          seedId: resolution.seed.seedId,
+          prophecy: resolution.seed.prophecy,
+          status: "idle",
+        },
+      ]);
+    } else if (resolution.kind === "housekeeping") {
+      setMessages((prev) => [
+        ...prev,
+        {
+          kind: "housekeeping",
+          id: crypto.randomUUID(),
+          items: resolution.items.map((item) => ({
+            seedId: item.seedId,
+            task: item.task,
+            status: "idle" as const,
+          })),
+        },
+      ]);
+    } else if (resolution.kind === "review") {
+      setMessages((prev) => [
+        ...prev,
+        { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: resolution.reply },
+      ]);
+    }
+  }
+
   // 起動時のナッジ状態解決（タイムアウト archive・新規ナッジ生成の副作用あり）は
   // StrictMode の二重 mount や再レンダーでも1回だけ呼ぶ
   useEffect(() => {
@@ -131,50 +173,53 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
 
     void (async () => {
       try {
-        const resolution = await resolveNudge();
-        if (resolution.kind === "nudge") {
-          setMessages((prev) => [
-            ...prev,
-            {
-              kind: "nudge",
-              id: resolution.seed.seedId,
-              seedId: resolution.seed.seedId,
-              prophecy: resolution.seed.prophecy,
-              status: "idle",
-            },
-          ]);
-        } else if (resolution.kind === "housekeeping") {
-          setMessages((prev) => [
-            ...prev,
-            {
-              kind: "housekeeping",
-              id: crypto.randomUUID(),
-              items: resolution.items.map((item) => ({
-                seedId: item.seedId,
-                task: item.task,
-                status: "idle" as const,
-              })),
-            },
-          ]);
-        } else if (resolution.kind === "review") {
-          setMessages((prev) => [
-            ...prev,
-            { kind: "text", id: crypto.randomUUID(), role: "nudgey", text: resolution.reply },
-          ]);
-        }
+        applyResolution(await resolveNudge());
       } catch (error) {
         console.error("resolveNudge failed", error);
-        appendNudgeyError(FALLBACK_REPLY);
+        appendNudgeyText(FALLBACK_REPLY);
       }
     })();
   }, []);
 
-  /** 楽観表示していたユーザーバブルがない失敗（起動時解決・棚卸し破棄等）で、ナッジーのキャラ内エラーだけを末尾に追加する */
-  function appendNudgeyError(text: string) {
+  /** ユーザーバブルを伴わないナッジーの発言（キャラ内エラー・手動ナッジの空応答等）を末尾に追加する */
+  function appendNudgeyText(text: string) {
     setMessages((prev) => [
       ...prev,
       { kind: "text", id: crypto.randomUUID(), role: "nudgey", text },
     ]);
+  }
+
+  /**
+   * 初回提案（設計書 §9.1）: タネ化のたびに firstSeed トリガーを投げ、発火条件（ナッジ未経験か）は
+   * サーバー側の判定に委ねる。send の完了は待たせない（提案は後から届けばよい）。
+   * ユーザーが明示的に要求した操作ではないため、失敗時はキャラ内エラーを出さずログのみ残す
+   */
+  async function maybeRequestFirstNudge() {
+    try {
+      applyResolution(await requestNudge({ data: { trigger: "firstSeed" } }));
+    } catch (error) {
+      console.error("requestNudge(firstSeed) failed", error);
+    }
+  }
+
+  /**
+   * 手動ナッジ（タネ袋の「なにか提案して」）。間隔ゲートを無視した解決をサーバーへ依頼する。
+   * 提案できるタネがない（empty）ときは intensity に応じた静的応答を出す。none（LLM 失敗・競合等）は
+   * ユーザー操作に対して何も起きない状態を避けるためキャラ内エラーで応える
+   */
+  async function requestManualNudge() {
+    try {
+      const resolution = await requestNudge({ data: { trigger: "manual" } });
+      if (resolution.kind === "empty") {
+        appendNudgeyText(MANUAL_NUDGE_EMPTY_REPLY[intensity]);
+      } else if (resolution.kind === "none") {
+        appendNudgeyText(FALLBACK_REPLY);
+      } else {
+        applyResolution(resolution);
+      }
+    } catch {
+      appendNudgeyText(FALLBACK_REPLY);
+    }
   }
 
   async function send(content: string): Promise<boolean> {
@@ -199,6 +244,9 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
             chip: buildChip(result.muttering.category, result.processedTask),
           },
         ]);
+        if (result.muttering.category === "seed") {
+          void maybeRequestFirstNudge();
+        }
         return true;
       }
       // 未保存のため楽観表示を取り消し、キャラ内エラーだけを残す（入力はフォームに復元）
@@ -326,11 +374,11 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
       } else {
         // 競合で対象が既に pending でなかった等。行は消さず操作可能な状態に戻し、キャラ内エラーで説明する
         setHousekeepingRowStatus(seedId, "idle");
-        appendNudgeyError(FALLBACK_REPLY);
+        appendNudgeyText(FALLBACK_REPLY);
       }
     } catch {
       setHousekeepingRowStatus(seedId, "idle");
-      appendNudgeyError(FALLBACK_REPLY);
+      appendNudgeyText(FALLBACK_REPLY);
     }
   }
 
@@ -462,5 +510,6 @@ export function useChat(init: { initialMessages: ChatMessageData[]; initialInten
     discard,
     reviveParent,
     declineParent,
+    requestManualNudge,
   };
 }

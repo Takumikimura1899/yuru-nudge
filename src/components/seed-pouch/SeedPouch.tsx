@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSeedPouch, type PouchSeed } from "../../server/nudges";
@@ -54,6 +55,15 @@ export default function SeedPouch() {
   // 表示中のフォーカス位置がリセットされてしまう）
   const closeSheet = useCallback(() => setOpen(false), []);
 
+  const navigate = useNavigate();
+  // 手動ナッジ（設計書 §9.1）: チャット状態とは非連携（規約: Context・イベントバス・lift 禁止）の
+  // ため、URL search param を橋渡しにして index ルート側へ依頼する。ここはシートを閉じて遷移する
+  // だけで、サーバー呼び出し・結果表示はチャット側（useChat.requestManualNudge）が担う
+  const requestNudge = useCallback(() => {
+    closeSheet();
+    void navigate({ to: "/", search: { nudge: "manual" } });
+  }, [closeSheet, navigate]);
+
   const count = seeds?.length ?? 0;
 
   return (
@@ -78,6 +88,7 @@ export default function SeedPouch() {
             status={status}
             onClose={closeSheet}
             onRetry={fetchPouch}
+            onRequestNudge={requestNudge}
             returnFocusRef={triggerRef}
           />
         )}

@@ -20,6 +20,7 @@ const createDefaultProps = (
   status: "ready" as const,
   onClose: vi.fn(),
   onRetry: vi.fn(),
+  onRequestNudge: vi.fn(),
   ...overrides,
 });
 
@@ -120,6 +121,29 @@ describe("SeedPouchSheet", () => {
     expect(returnTarget).toHaveFocus();
     returnTarget.remove();
   });
+
+  test("一覧表示中は『なにか提案して』ボタンを表示し、クリックで onRequestNudge が呼ばれる", async () => {
+    const user = userEvent.setup();
+    const props = createDefaultProps({ seeds: [createPouchSeed()] });
+    render(<SeedPouchSheet {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "なにか提案して" }));
+
+    expect(props.onRequestNudge).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    { label: "空状態（タネ0件）", overrides: { seeds: [] as PouchSeed[] } },
+    { label: "エラー", overrides: { seeds: null, status: "error" as const } },
+    { label: "ローディング", overrides: { seeds: null, status: "loading" as const } },
+  ])(
+    "$label では『なにか提案して』ボタンを出さない（必ず空応答になる行き止まり操作を避ける）",
+    ({ overrides }) => {
+      render(<SeedPouchSheet {...createDefaultProps(overrides)} />);
+
+      expect(screen.queryByRole("button", { name: "なにか提案して" })).not.toBeInTheDocument();
+    },
+  );
 
   test("✕ の装飾絵文字 span は aria-hidden で読み上げツリーから除外される", () => {
     render(<SeedPouchSheet {...createDefaultProps()} />);
