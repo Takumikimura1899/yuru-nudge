@@ -138,6 +138,20 @@
 
 ---
 
+## Issue #14（ナッジ提案頻度・トリガーの見直し）
+
+### 採用した判断
+
+- **提案間隔を 12h → 4h に短縮**（`NUDGE_INTERVAL_HOURS`）。日中に何度か開く使い方で 1 日 1〜3 回提案される計算。intensity 連動は見送り（chill/sharp は「口調の設定」であり、頻度の意味を混ぜない）。Phase 3〜4 のノートにある「12 時間ゲート」は当時の値で、現在は 4 時間。
+- **初回提案（firstSeed トリガー）**: ナッジ未経験（`fetchLastNudgedAt` が null）のときだけ、タネ化直後にセッション内で即提案。`send()` 成功時に category=seed なら fire-and-forget で `requestNudge({trigger:"firstSeed"})` を投げ、発火条件はサーバー側で判定（クライアントは lastNudgedAt を知らないため）。失敗はユーザーが要求した操作ではないのでキャラ内エラーを出さず console.error のみ。
+- **手動ナッジ（manual トリガー）**: タネ袋シートの「なにか提案して」。`resolveNudgeState` に `skipInterval` オプションを足し、間隔ゲートだけスキップして自動と同一フロー（nudged 再表示 → 棚卸し → 月次振り返り → 新規提案）。提案結果は通常の nudged 扱いで `nudged_at` が更新されるため自動タイマーもリセットされる。
+- **`NudgeResolution` に `kind:"empty"` を追加**（pending 0 件）。`none`（間隔未経過・LLM 失敗・競合）と区別し、手動ナッジで「タネがないよ」静的応答（`MANUAL_NUDGE_EMPTY_REPLY`、LLM 非呼び出し）を出し分けるため。起動時・初回経路では empty は none と同様に無視される。
+- **シート → チャットの橋渡しは URL search param**（`/?nudge=manual`）。SeedPouch は Header（`__root`）配下でチャット状態と親子関係がなく、Context・イベントバス・lift は規約で禁止のため、Router の URL 状態を使う。シートは navigate + close するだけで、server fn 呼び出し・結果表示は index ルートの effect → `useChat.requestManualNudge` が担う。param は依頼後すぐ `replace: true` で消す（リロード・戻るでの再発火防止）。StrictMode の二重実行は ref ガード、param が消えたら ref をリセットして次のボタン押下に備える。
+- **ナッジカードの id は seedId ではなく都度 `crypto.randomUUID()`**。手動ナッジの再表示で同じ seed のカードが複数回 append されても React の key が衝突しないようにするため。反応処理は seedId スコープなので複数カードの状態遷移は常に揃う。
+- **「なにか提案して」ボタンは list ビューのみ表示**（empty では非表示）。タネ 0 件で押しても必ず空応答になる行き止まり操作のため（ui-ux 原則）。サーバー側の empty 分岐は、シートを開いたまま他所でタネが消えた場合の保険として残す。
+
+---
+
 ## ローカル環境の起動 / DB ドライバ周り
 
 ### `bun run dev` は Supabase を自動起動する

@@ -30,11 +30,12 @@ export type NudgeSeed = { seedId: string; task: string; prophecy: string };
 export type HousekeepingItem = { seedId: string; task: string };
 export type NudgeResolution =
   | { kind: "none" }
+  | { kind: "empty" }
   | { kind: "nudge"; seed: NudgeSeed }
   | { kind: "housekeeping"; items: HousekeepingItem[] }
   | { kind: "review"; reply: string };
 
-/** 新規ナッジの提案間隔（12時間）が経過しているか。未提案（null）なら常に経過扱い（設計書 §9.1） */
+/** 新規ナッジの提案間隔（NUDGE_INTERVAL_HOURS）が経過しているか。未提案（null）なら常に経過扱い（設計書 §9.1） */
 export function isIntervalElapsed(lastNudgedAt: Date | null, now: Date): boolean {
   if (lastNudgedAt === null) return true;
   return lastNudgedAt.getTime() + NUDGE_INTERVAL_HOURS * HOUR_MS <= now.getTime();
@@ -44,12 +45,15 @@ export function isIntervalElapsed(lastNudgedAt: Date | null, now: Date): boolean
  * 起動時のナッジ状態を解決する（設計書 §9.1, §9.4）。以下の順序を厳守する:
  * 1. タイムアウトした nudged を一括 archive
  * 2. 残った nudged があれば決定的に1件選んで再表示（重複耐性: 複数あっても壊れない）
- * 3. 新規提案間隔（12時間）が未経過なら kind:none（棚卸しもこの枠を使うため間隔判定の内側にある）
- * 4. 間隔経過済みなら: pending が閾値以上なら棚卸し、未満なら LLM で新規ナッジを選択
+ * 3. 新規提案間隔が未経過なら kind:none（棚卸しもこの枠を使うため間隔判定の内側にある）。
+ *    手動ナッジ（skipInterval: true）はこの判定だけを飛ばし、他の順序・分岐は自動と同一に保つ
+ * 4. 間隔経過済みなら: pending が閾値以上なら棚卸し、未満なら LLM で新規ナッジを選択。
+ *    pending が0件のときは none と区別して kind:empty を返す（手動ナッジの「タネがない」応答に使う。
+ *    none は間隔未経過・LLM 失敗・競合も含むため区別が必要）
  */
 export async function resolveNudgeState(
   db: Kysely<DB>,
-  args: { userId: string; now?: Date },
+  args: { userId: string; now?: Date; skipInterval?: boolean },
 ): Promise<NudgeResolution> {
   const now = args.now ?? new Date();
   const { userId } = args;
@@ -61,9 +65,11 @@ export async function resolveNudgeState(
     return { kind: "nudge", seed: redisplay };
   }
 
-  const lastNudgedAt = await fetchLastNudgedAt(db, userId);
-  if (!isIntervalElapsed(lastNudgedAt, now)) {
-    return { kind: "none" };
+  if (!args.skipInterval) {
+    const lastNudgedAt = await fetchLastNudgedAt(db, userId);
+    if (!isIntervalElapsed(lastNudgedAt, now)) {
+      return { kind: "none" };
+    }
   }
 
   const pending = await fetchPendingSeeds(db, userId);
@@ -80,10 +86,34 @@ export async function resolveNudgeState(
   }
 
   if (pending.length === 0) {
-    return { kind: "none" };
+    return { kind: "empty" };
   }
 
   return await generateNewNudge(db, userId, now, pending);
+}
+
+/**
+ * 起動時以外のトリガーによるナッジ解決（設計書 §9.1）。
+ * - manual: タネ袋の「なにか提案して」。間隔ゲートだけをスキップし、他は自動と同一フロー
+ *   （nudged 再表示・棚卸し・月次振り返りも自動と同じ優先順位で発生しうる）
+ * - firstSeed: タネ化直後の初回提案。一度でもナッジ済み（nudged_at が存在する）なら何もしない。
+ *   未経験なら通常フローに委ねる（lastNudgedAt が null のため間隔は自然に経過扱いになる）
+ */
+export async function resolveRequestedNudge(
+  db: Kysely<DB>,
+  args: { userId: string; trigger: "manual" | "firstSeed"; now?: Date },
+): Promise<NudgeResolution> {
+  const { userId, now } = args;
+
+  if (args.trigger === "firstSeed") {
+    const lastNudgedAt = await fetchLastNudgedAt(db, userId);
+    if (lastNudgedAt !== null) {
+      return { kind: "none" };
+    }
+    return await resolveNudgeState(db, { userId, now });
+  }
+
+  return await resolveNudgeState(db, { userId, now, skipInterval: true });
 }
 
 /** JST基準の月ラベルと、前月/当月の開始UTC時刻を返す純関数（設計書 §9.3 の月次振り返り判定に使用） */
@@ -568,6 +598,23 @@ export const resolveNudge = createServerFn({ method: "POST" })
     const db = createDb();
     try {
       return await resolveNudgeState(db, { userId: context.userId });
+    } finally {
+      await db.destroy();
+    }
+  });
+
+export const requestNudgeInput = z.object({
+  trigger: z.enum(["manual", "firstSeed"]),
+});
+
+/** 起動時以外のナッジ解決リクエスト（タネ袋の手動ナッジ / タネ化直後の初回提案） */
+export const requestNudge = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .inputValidator(requestNudgeInput)
+  .handler(async ({ data, context }) => {
+    const db = createDb();
+    try {
+      return await resolveRequestedNudge(db, { userId: context.userId, trigger: data.trigger });
     } finally {
       await db.destroy();
     }

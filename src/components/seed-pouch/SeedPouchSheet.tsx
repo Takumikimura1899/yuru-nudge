@@ -17,6 +17,7 @@ const COPY = {
   close: "閉じる",
   nudgedPill: "提案中",
   listRegion: "タネの一覧",
+  suggest: "なにか提案して",
 };
 
 /**
@@ -34,12 +35,15 @@ export default function SeedPouchSheet({
   status,
   onClose,
   onRetry,
+  onRequestNudge,
   returnFocusRef,
 }: {
   seeds: PouchSeed[] | null;
   status: "loading" | "error" | "ready";
   onClose: () => void;
   onRetry: () => void;
+  /** 「なにか提案して」（手動ナッジ）が押されたときに呼ぶ。シートを閉じる責務も呼び出し元が担う */
+  onRequestNudge: () => void;
   /** 閉じたあとフォーカスを戻す先（通常はトリガーボタン）。未指定時は開いた時点の要素へ戻す */
   returnFocusRef?: { readonly current: HTMLElement | null };
 }) {
@@ -203,6 +207,19 @@ export default function SeedPouchSheet({
             </ul>
           )}
         </div>
+
+        {/* 手動ナッジ（設計書 §9.1）。タネがない empty ビューでは「必ず空応答になる」行き止まり操作の
+            ため出さない（空状態の案内はつぶやきへの導線に絞る）。error/loading 中も同様に出さない */}
+        {view.kind === "list" && (
+          <button
+            type="button"
+            onClick={onRequestNudge}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-2.5 text-sm font-semibold text-[var(--sea-ink)] transition hover:-translate-y-0.5"
+          >
+            <span aria-hidden>✨</span>
+            {COPY.suggest}
+          </button>
+        )}
       </motion.div>
     </>,
     document.body,

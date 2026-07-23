@@ -25,6 +25,7 @@ const {
   isIntervalElapsed,
   jstMonthRange,
   resolveNudgeState,
+  resolveRequestedNudge,
   reactToNudge,
   discardSeed,
   reviveParent,
@@ -93,12 +94,12 @@ describe("isIntervalElapsed", () => {
     expect(isIntervalElapsed(null, NOW)).toBe(true);
   });
 
-  test("ちょうど12時間経過は境界を含んで経過扱い", () => {
+  test("ちょうど間隔時間（NUDGE_INTERVAL_HOURS）の経過は境界を含んで経過扱い", () => {
     const lastNudgedAt = new Date(NOW.getTime() - NUDGE_INTERVAL_HOURS * HOUR_MS);
     expect(isIntervalElapsed(lastNudgedAt, NOW)).toBe(true);
   });
 
-  test("12時間未満は未経過", () => {
+  test("間隔時間未満は未経過", () => {
     const lastNudgedAt = new Date(NOW.getTime() - NUDGE_INTERVAL_HOURS * HOUR_MS + 1);
     expect(isIntervalElapsed(lastNudgedAt, NOW)).toBe(false);
   });
@@ -150,7 +151,7 @@ describe("resolveNudgeState", () => {
 
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-    expect(result).toEqual({ kind: "none" });
+    expect(result).toEqual({ kind: "empty" });
     expect(db.updateTable).toHaveBeenCalledWith("seeds");
     expect(db.set).toHaveBeenCalledWith({ status: "archived", updated_at: NOW });
     expect(db.where).toHaveBeenCalledWith("user_id", "=", "test-user");
@@ -223,11 +224,11 @@ describe("resolveNudgeState", () => {
     expect(result).toEqual({ kind: "none" });
     // fetchPendingSeeds（棚卸し判定）に到達していない
     expect(db.execute).toHaveBeenCalledTimes(1);
-    // 12時間ゲート未経過なら月次振り返りの判定にも到達しない
+    // 間隔ゲート未経過なら月次振り返りの判定にも到達しない
     expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
   });
 
-  test("pending が0件なら none", async () => {
+  test("pending が0件なら empty（間隔未経過・LLM 失敗の none と区別し、手動ナッジの空応答に使う）", async () => {
     db.execute
       .mockResolvedValueOnce(undefined) // archive UPDATE
       .mockResolvedValueOnce([]); // fetchPendingSeeds
@@ -238,10 +239,10 @@ describe("resolveNudgeState", () => {
 
     const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-    expect(result).toEqual({ kind: "none" });
+    expect(result).toEqual({ kind: "empty" });
   });
 
-  test("提案間隔(12h)が未経過なら pending 取得前に none を返す。LLM は呼ばない", async () => {
+  test("提案間隔が未経過なら pending 取得前に none を返す。LLM は呼ばない", async () => {
     db.execute.mockResolvedValueOnce(undefined); // archive UPDATE
     db.executeTakeFirst
       .mockResolvedValueOnce(undefined) // pickNudgedSeed
@@ -333,6 +334,41 @@ describe("resolveNudgeState", () => {
     expect(result).toEqual({ kind: "none" });
   });
 
+  test("skipInterval: 間隔判定（fetchLastNudgedAt）を跳ばして提案フローへ進む（手動ナッジ用）", async () => {
+    const pending = [createPendingSeed()];
+    db.execute
+      .mockResolvedValueOnce(undefined) // archive UPDATE
+      .mockResolvedValueOnce(pending) // fetchPendingSeeds
+      .mockResolvedValueOnce([]); // fetchRecentMoods
+    db.executeTakeFirst
+      .mockResolvedValueOnce(undefined) // pickNudgedSeed
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }) // maybeResolveMonthlyReview: 表示済みとしてskip
+      .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+      .mockResolvedValueOnce({
+        id: "seed-1",
+        processed_task: "部屋を片付ける",
+        prophecy: "片付いた部屋、気持ちいいかも",
+      }); // 最終 UPDATE
+    selectNudgeMock.mockResolvedValue({
+      ok: true,
+      seedId: "seed-1",
+      prophecy: "片付いた部屋、気持ちいいかも",
+    });
+
+    const result = await resolveNudgeState(asDb(db), {
+      userId: "test-user",
+      now: NOW,
+      skipInterval: true,
+    });
+
+    expect(result).toEqual({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+    // fetchLastNudgedAt（間隔判定）のクエリ自体を打っていない
+    expect(db.where).not.toHaveBeenCalledWith("nudged_at", "is not", null);
+  });
+
   describe("月次振り返り", () => {
     test("表示済み月（last_review_month === currentLabel）は SELECT のみで、前月分の抽出や claim は行わない", async () => {
       db.execute
@@ -345,7 +381,7 @@ describe("resolveNudgeState", () => {
 
       const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-      expect(result).toEqual({ kind: "none" });
+      expect(result).toEqual({ kind: "empty" });
       expect(db.execute).toHaveBeenCalledTimes(2); // 前月 completed の抽出（3回目の execute）は呼ばれない
       expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
     });
@@ -394,7 +430,7 @@ describe("resolveNudgeState", () => {
 
       const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-      expect(result).toEqual({ kind: "none" });
+      expect(result).toEqual({ kind: "empty" });
       expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
     });
 
@@ -412,7 +448,7 @@ describe("resolveNudgeState", () => {
 
       const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-      expect(result).toEqual({ kind: "none" });
+      expect(result).toEqual({ kind: "empty" });
       expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
     });
 
@@ -430,10 +466,129 @@ describe("resolveNudgeState", () => {
 
       const result = await resolveNudgeState(asDb(db), { userId: "test-user", now: NOW });
 
-      expect(result).toEqual({ kind: "none" });
+      expect(result).toEqual({ kind: "empty" });
       expect(db.set).toHaveBeenCalledWith({ last_review_month: CURRENT_LABEL });
       expect(generateMonthlyReviewMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("resolveRequestedNudge（手動ナッジ / 初回提案）", () => {
+  let db: MockDb;
+
+  beforeEach(() => {
+    db = createMockDb();
+    selectNudgeMock.mockReset();
+    generateMonthlyReviewMock.mockReset();
+  });
+
+  test("firstSeed: ナッジ済み（lastNudgedAt あり）なら何もせず none（archive・提案フローに入らない）", async () => {
+    db.executeTakeFirst.mockResolvedValueOnce({
+      nudged_at: new Date(NOW.getTime() - HOUR_MS),
+    }); // fetchLastNudgedAt
+
+    const result = await resolveRequestedNudge(asDb(db), {
+      userId: "test-user",
+      trigger: "firstSeed",
+      now: NOW,
+    });
+
+    expect(result).toEqual({ kind: "none" });
+    expect(db.execute).not.toHaveBeenCalled(); // archive UPDATE にも到達しない
+    expect(selectNudgeMock).not.toHaveBeenCalled();
+  });
+
+  test("firstSeed: ナッジ未経験（null）なら通常フローに委ねて新規提案する", async () => {
+    const pending = [createPendingSeed()];
+    db.execute
+      .mockResolvedValueOnce(undefined) // archive UPDATE
+      .mockResolvedValueOnce(pending) // fetchPendingSeeds
+      .mockResolvedValueOnce([]); // fetchRecentMoods
+    db.executeTakeFirst
+      .mockResolvedValueOnce(undefined) // fetchLastNudgedAt（トリガー判定: 未経験）
+      .mockResolvedValueOnce(undefined) // pickNudgedSeed
+      .mockResolvedValueOnce(undefined) // fetchLastNudgedAt（間隔判定: null → 経過扱い）
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }) // maybeResolveMonthlyReview: 表示済みとしてskip
+      .mockResolvedValueOnce({ intensity_level: "chill" }) // fetchIntensity
+      .mockResolvedValueOnce({
+        id: "seed-1",
+        processed_task: "部屋を片付ける",
+        prophecy: "片付いた部屋、気持ちいいかも",
+      }); // 最終 UPDATE
+    selectNudgeMock.mockResolvedValue({
+      ok: true,
+      seedId: "seed-1",
+      prophecy: "片付いた部屋、気持ちいいかも",
+    });
+
+    const result = await resolveRequestedNudge(asDb(db), {
+      userId: "test-user",
+      trigger: "firstSeed",
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+  });
+
+  test("manual: nudged 再表示があればそれを優先し、新規提案しない（1つだけ提案の原則）", async () => {
+    db.execute.mockResolvedValueOnce(undefined); // archive UPDATE
+    db.executeTakeFirst.mockResolvedValueOnce(createRedisplaySeedRow()); // pickNudgedSeed
+
+    const result = await resolveRequestedNudge(asDb(db), {
+      userId: "test-user",
+      trigger: "manual",
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      kind: "nudge",
+      seed: { seedId: "seed-1", task: "部屋を片付ける", prophecy: "片付いた部屋、気持ちいいかも" },
+    });
+    expect(selectNudgeMock).not.toHaveBeenCalled();
+  });
+
+  test("manual: pending 0件なら empty を返す（間隔ゲートはスキップしている）", async () => {
+    db.execute
+      .mockResolvedValueOnce(undefined) // archive UPDATE
+      .mockResolvedValueOnce([]); // fetchPendingSeeds
+    db.executeTakeFirst
+      .mockResolvedValueOnce(undefined) // pickNudgedSeed
+      .mockResolvedValueOnce({ last_review_month: CURRENT_LABEL }); // maybeResolveMonthlyReview: 表示済みとしてskip
+
+    const result = await resolveRequestedNudge(asDb(db), {
+      userId: "test-user",
+      trigger: "manual",
+      now: NOW,
+    });
+
+    expect(result).toEqual({ kind: "empty" });
+    // fetchLastNudgedAt（間隔判定）のクエリ自体を打っていない
+    expect(db.where).not.toHaveBeenCalledWith("nudged_at", "is not", null);
+  });
+
+  test("manual: pending が閾値以上なら棚卸しを優先する（自動と同一フロー）", async () => {
+    const pending = Array.from({ length: HOUSEKEEPING_THRESHOLD }, (_, i) =>
+      createPendingSeed({ id: `seed-${i}`, processed_task: `task-${i}` }),
+    );
+    db.execute
+      .mockResolvedValueOnce(undefined) // archive UPDATE
+      .mockResolvedValueOnce(pending); // fetchPendingSeeds
+    db.executeTakeFirst.mockResolvedValueOnce(undefined); // pickNudgedSeed
+
+    const result = await resolveRequestedNudge(asDb(db), {
+      userId: "test-user",
+      trigger: "manual",
+      now: NOW,
+    });
+
+    expect(result).toEqual({
+      kind: "housekeeping",
+      items: pending.map((p) => ({ seedId: p.id, task: p.processed_task })),
+    });
+    expect(selectNudgeMock).not.toHaveBeenCalled();
   });
 });
 
